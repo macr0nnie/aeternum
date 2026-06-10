@@ -1,0 +1,26 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.env
+*.env.local
+
+# Supabase local dev
+supabase/.temp/
+supabase/functions/.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Android
+android/
+ios/
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Expo
+google-services.json
+GoogleService-Info.plist
