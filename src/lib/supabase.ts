@@ -53,6 +53,27 @@ export async function getCurrentUser() {
 }
 
 // ---------------------------------------------------------------------------
+// Guest entry
+// ---------------------------------------------------------------------------
+// Players enter instantly as anonymous guests — no email, no friction. A
+// player row is created on first entry. An email can be linked later for
+// account recovery (Supabase supports upgrading an anonymous user in place).
+//
+// Requires "Allow anonymous sign-ins" to be enabled in the Supabase project
+// (Authentication → Sign In / Providers → Anonymous).
+
+export async function signInAsGuest() {
+  return supabase.auth.signInAnonymously()
+}
+
+// Generate a default commander name for a new guest. Players rename later on
+// the Identity screen. No uniqueness constraint exists, so collisions are fine.
+function generateGuestUsername(): string {
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase()
+  return `Runner-${suffix}`
+}
+
+// ---------------------------------------------------------------------------
 // Player helpers
 // ---------------------------------------------------------------------------
 
@@ -61,6 +82,19 @@ export async function fetchPlayer(playerId: string) {
     .from('players')
     .select('*')
     .eq('id', playerId)
+    .single()
+}
+
+// Fetch the player row, creating one with defaults if this is a new guest.
+// RLS ("players_own_row") permits the insert because auth.uid() === playerId.
+export async function ensurePlayer(playerId: string) {
+  const existing = await fetchPlayer(playerId)
+  if (existing.data) return existing
+
+  return supabase
+    .from('players')
+    .insert({ id: playerId, username: generateGuestUsername() })
+    .select('*')
     .single()
 }
 
