@@ -13,7 +13,8 @@
 import React, { useState } from 'react'
 import { View, Text, StyleSheet } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { signInAsGuest } from '@/lib/supabase'
+import { signInAsGuest, isSupabaseConfigured, buildLocalGuestPlayer } from '@/lib/supabase'
+import { useStore } from '@/store/useStore'
 import { Label, Button, Spacer } from '@/components/UI'
 import { COLORS, SPACING, LETTER_SPACING, FONTS, FONT_SIZES } from '@/theme/tokens'
 
@@ -27,21 +28,39 @@ interface OnboardingProps {
 export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const setPlayer = useStore((s) => s.setPlayer)
+
+  // Drop straight into a fully-local session — no network. Used when the backend
+  // isn't configured/reachable so the app is always navigable for testing.
+  function enterOffline() {
+    setPlayer(buildLocalGuestPlayer())
+  }
 
   async function handleBegin() {
+    // No backend configured → skip the network round-trip entirely.
+    if (!isSupabaseConfigured) {
+      enterOffline()
+      return
+    }
+
     setLoading(true)
     setError(null)
 
-    const { error: authError } = await signInAsGuest()
-
-    if (authError) {
-      // Most common cause: anonymous sign-ins not enabled on the Supabase project.
-      setError(authError.message)
+    try {
+      const { error: authError } = await signInAsGuest()
+      if (authError) {
+        // Most common cause: anonymous sign-ins not enabled, or the backend is
+        // unreachable (e.g. local Supabase not running / wrong LAN IP).
+        setError(authError.message)
+        setLoading(false)
+        return
+      }
+      // On success the root layout's auth listener creates the player and unmounts
+      // this overlay — keep the button in its loading state until that happens.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reach the server.')
       setLoading(false)
-      return
     }
-    // On success the root layout's auth listener creates the player and unmounts
-    // this overlay — keep the button in its loading state until that happens.
   }
 
   return (
@@ -67,7 +86,9 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
               />
               <Spacer size="sm" />
               <Label variant="tertiary" size="xs">
-                Enter instantly as a guest — no account required
+                {isSupabaseConfigured
+                  ? 'Enter instantly as a guest — no account required'
+                  : 'Offline mode — backend not configured. Progress stays on this device.'}
               </Label>
               {error && (
                 <>
@@ -75,6 +96,13 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
                   <Label variant="rarity" rarity="common" size="xs">
                     {`Entry failed: ${error}`}
                   </Label>
+                  <Spacer size="sm" />
+                  <Button
+                    label="Continue Offline"
+                    variant="ghost"
+                    onPress={enterOffline}
+                    fullWidth
+                  />
                 </>
               )}
             </>
@@ -90,7 +118,11 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: COLORS.ground,
     zIndex: 10,
   },

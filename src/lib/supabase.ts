@@ -12,24 +12,69 @@
 
 import { createClient } from '@supabase/supabase-js'
 import AsyncStorage from '@react-native-async-storage/async-storage'
+import type { Player } from '@/types'
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Missing Supabase environment variables. Copy .env.example → .env and fill in your project values.',
+// True only when both env vars are present and not left at the .env.example
+// placeholder values. Screens use this to decide whether to attempt the backend
+// or fall back to a navigable offline state.
+export const isSupabaseConfigured =
+  Boolean(supabaseUrl && supabaseAnonKey) &&
+  !supabaseUrl!.includes('your-project') &&
+  !supabaseAnonKey!.includes('your-anon-key')
+
+if (!isSupabaseConfigured) {
+  // Why warn instead of throw: a module-level throw white-screens the whole app
+  // before React mounts, with no recovery path. The app must always boot — the
+  // entry screen then offers an offline path or a clear "backend unreachable"
+  // message. Copy .env.example → .env to enable the real backend.
+  console.warn(
+    '[Aeternum] Supabase is not configured — running in offline mode. ' +
+      'Copy .env.example → .env and set EXPO_PUBLIC_SUPABASE_URL / _ANON_KEY to enable the backend.',
   )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: AsyncStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
+// Fall back to harmless placeholders so createClient never throws at import
+// time when env vars are absent. Network calls then fail and are handled
+// gracefully by callers (see Onboarding + runSync) rather than crashing.
+export const supabase = createClient(
+  supabaseUrl ?? 'http://localhost:54321',
+  supabaseAnonKey ?? 'offline-placeholder-key',
+  {
+    auth: {
+      storage: AsyncStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
   },
-})
+)
+
+// ---------------------------------------------------------------------------
+// Offline guest
+// ---------------------------------------------------------------------------
+// A fully-local player so the UI is navigable without any backend — used for
+// development/testing and as a graceful fallback when Supabase is unreachable.
+// Nothing here is persisted server-side; it lives only in the Zustand store.
+
+export function buildLocalGuestPlayer(): Player {
+  const now = new Date().toISOString()
+  return {
+    id: `offline-${Math.random().toString(36).slice(2, 10)}`,
+    username: `Runner-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+    rank: 'E',
+    total_distance_km: 0,
+    primary_element: null,
+    secondary_element: null,
+    stats: { ATK: 0, SPD: 0, INT: 0, LCK: 0, DEF: 0, END: 0, PER: 0, CHA: 0 },
+    title: 'Unawakened',
+    title_chronicle: [],
+    created_at: now,
+    updated_at: now,
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Auth helpers

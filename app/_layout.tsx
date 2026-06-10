@@ -67,7 +67,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <View style={styles.root} onLayout={onLayoutRootView}>
-        <StatusBar style="light" backgroundColor={COLORS.ground} />
+        <StatusBar style="light" />
         <Tabs
           screenOptions={{
             headerShown: false,
