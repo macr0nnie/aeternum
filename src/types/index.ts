@@ -259,6 +259,292 @@ export const TYPE_MATCHUP_CHART: Record<Element, Record<Element, number>> = {
 }
 
 // ---------------------------------------------------------------------------
+// Quest system
+// ---------------------------------------------------------------------------
+
+export type QuestCategory = 'training' | 'combat' | 'exploration' | 'special'
+
+export interface QuestCondition {
+  type: 'distance' | 'stat' | 'dungeon_clear' | 'dungeon_count' | 'auto'
+  km?: number           // for 'distance'
+  statKey?: StatKey     // for 'stat'
+  statMin?: number      // for 'stat'
+  dungeonId?: string    // for 'dungeon_clear'
+  count?: number        // for 'dungeon_count'
+}
+
+export interface Quest {
+  id: string
+  title: string
+  description: string
+  category: QuestCategory
+  condition: QuestCondition
+  statRewards: Partial<Stats>
+  flavor: string
+}
+
+export const QUESTS: Quest[] = [
+  // Training
+  {
+    id: 'q_first_steps',
+    title: 'First Steps',
+    description: 'Begin your journey.',
+    category: 'training',
+    condition: { type: 'auto' },
+    statRewards: { END: 1, CHA: 1 },
+    flavor: 'Every sovereign began with a single step.',
+  },
+  {
+    id: 'q_morning_run',
+    title: 'Morning Run',
+    description: 'Run a total of 2 km.',
+    category: 'training',
+    condition: { type: 'distance', km: 2 },
+    statRewards: { END: 1, SPD: 1 },
+    flavor: 'The body awakens when the sun rises.',
+  },
+  {
+    id: 'q_long_haul',
+    title: 'The Long Haul',
+    description: 'Run a total of 10 km.',
+    category: 'training',
+    condition: { type: 'distance', km: 10 },
+    statRewards: { END: 2, DEF: 1 },
+    flavor: 'Endurance is forged on the long road.',
+  },
+  {
+    id: 'q_marathon',
+    title: 'Marathon Bearer',
+    description: 'Run a total of 42 km.',
+    category: 'training',
+    condition: { type: 'distance', km: 42 },
+    statRewards: { END: 3, DEF: 2, SPD: 1 },
+    flavor: 'The body becomes iron after 42.',
+  },
+  {
+    id: 'q_century',
+    title: 'Century Runner',
+    description: 'Run a total of 100 km.',
+    category: 'training',
+    condition: { type: 'distance', km: 100 },
+    statRewards: { END: 5, DEF: 3, SPD: 2 },
+    flavor: 'Three digits. Most never try.',
+  },
+  {
+    id: 'q_speed_trial',
+    title: 'Speed Trial',
+    description: 'Reach a Speed of 5.',
+    category: 'training',
+    condition: { type: 'stat', statKey: 'SPD', statMin: 5 },
+    statRewards: { SPD: 2, ATK: 1 },
+    flavor: 'Strike before your enemy can react.',
+  },
+  {
+    id: 'q_iron_body',
+    title: 'Iron Body',
+    description: 'Reach a Defence of 5.',
+    category: 'training',
+    condition: { type: 'stat', statKey: 'DEF', statMin: 5 },
+    statRewards: { DEF: 2, END: 1 },
+    flavor: 'An unbreakable body outlasts every foe.',
+  },
+  // Combat
+  {
+    id: 'q_first_dungeon',
+    title: 'First Blood',
+    description: 'Clear The Awakening Chamber.',
+    category: 'combat',
+    condition: { type: 'dungeon_clear', dungeonId: 'd_awakening' },
+    statRewards: { ATK: 2, LCK: 1 },
+    flavor: 'Your first kill changes everything.',
+  },
+  {
+    id: 'q_monster_slayer',
+    title: 'Monster Slayer',
+    description: 'Clear 3 different dungeons.',
+    category: 'combat',
+    condition: { type: 'dungeon_count', count: 3 },
+    statRewards: { ATK: 3, DEF: 1 },
+    flavor: 'They will know your name.',
+  },
+  {
+    id: 'q_rank_d_clear',
+    title: 'Rank Up',
+    description: 'Clear a Rank D dungeon.',
+    category: 'combat',
+    condition: { type: 'dungeon_clear', dungeonId: 'd_crystal' },
+    statRewards: { ATK: 2, INT: 2 },
+    flavor: 'Rank D hunters rarely survive. You did.',
+  },
+  {
+    id: 'q_rank_c_clear',
+    title: 'Elite Hunter',
+    description: 'Clear a Rank C dungeon.',
+    category: 'combat',
+    condition: { type: 'dungeon_clear', dungeonId: 'd_shadow' },
+    statRewards: { ATK: 3, INT: 2, SPD: 1 },
+    flavor: 'The shadows bow to the strongest.',
+  },
+  // Special
+  {
+    id: 'q_name_path',
+    title: 'Name Your Path',
+    description: 'Set your commander name.',
+    category: 'special',
+    condition: { type: 'auto' },
+    statRewards: { CHA: 2 },
+    flavor: 'A name is a weapon.',
+  },
+  {
+    id: 'q_find_element',
+    title: 'The Awakening',
+    description: 'Choose your element.',
+    category: 'special',
+    condition: { type: 'stat', statKey: 'INT', statMin: 1 },
+    statRewards: { INT: 2, LCK: 2 },
+    flavor: 'Your essence crystallises.',
+  },
+  {
+    id: 'q_shadow_steps',
+    title: 'Shadow Steps',
+    description: 'Run a total of 50 km.',
+    category: 'exploration',
+    condition: { type: 'distance', km: 50 },
+    statRewards: { SPD: 3, PER: 2 },
+    flavor: 'You have walked further than most ever will.',
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Dungeon entries (stat-gated, no active combat — stat-check based)
+// ---------------------------------------------------------------------------
+
+export interface DungeonEntry {
+  id: string
+  name: string
+  rank: 'F' | 'E' | 'D' | 'C' | 'B' | 'A' | 'S'
+  description: string
+  statRequirements: Partial<Stats>
+  rewardRarity: Rarity
+  statRewards: Partial<Stats>
+  flavor: string
+  minDistanceKm: number
+}
+
+export const DUNGEON_ENTRIES: DungeonEntry[] = [
+  {
+    id: 'd_awakening',
+    name: 'The Awakening Chamber',
+    rank: 'F',
+    description: 'A crumbling ruin pulsing with residual mana. Entry-level gate.',
+    statRequirements: {},
+    rewardRarity: 'common',
+    statRewards: { ATK: 1, END: 1 },
+    flavor: 'Every hunter remembers their first gate.',
+    minDistanceKm: 0,
+  },
+  {
+    id: 'd_goblin',
+    name: "Goblin's Warren",
+    rank: 'E',
+    description: 'Tunnels overrun by low-rank monsters.',
+    statRequirements: { ATK: 3 },
+    rewardRarity: 'common',
+    statRewards: { ATK: 2, SPD: 1 },
+    flavor: 'Weak alone. Dangerous in swarms.',
+    minDistanceKm: 2,
+  },
+  {
+    id: 'd_catacombs',
+    name: 'Crumbling Catacombs',
+    rank: 'E',
+    description: 'Ancient burial ground. The dead do not rest here.',
+    statRequirements: { END: 5 },
+    rewardRarity: 'common',
+    statRewards: { END: 2, DEF: 1 },
+    flavor: 'Survival, not strength, is the key.',
+    minDistanceKm: 2,
+  },
+  {
+    id: 'd_crystal',
+    name: 'Crystal Caverns',
+    rank: 'D',
+    description: 'Labyrinthine caves where mana crystallises into monsters.',
+    statRequirements: { ATK: 8, DEF: 5 },
+    rewardRarity: 'uncommon',
+    statRewards: { ATK: 3, INT: 2 },
+    flavor: 'Light bends strangely underground.',
+    minDistanceKm: 5,
+  },
+  {
+    id: 'd_storm',
+    name: 'Storm Gauntlet',
+    rank: 'D',
+    description: 'A sky gate. Constant lightning. Speed is the only defence.',
+    statRequirements: { SPD: 8, END: 8 },
+    rewardRarity: 'uncommon',
+    statRewards: { SPD: 3, END: 2 },
+    flavor: 'The storm does not care about your rank.',
+    minDistanceKm: 5,
+  },
+  {
+    id: 'd_shadow',
+    name: 'Shadow Sanctum',
+    rank: 'C',
+    description: 'A void gate where light itself has been consumed.',
+    statRequirements: { ATK: 15, INT: 10 },
+    rewardRarity: 'rare',
+    statRewards: { ATK: 4, INT: 3 },
+    flavor: 'You cannot fight what you cannot see.',
+    minDistanceKm: 10,
+  },
+  {
+    id: 'd_fortress',
+    name: 'Iron Fortress',
+    rank: 'C',
+    description: 'A military installation overrun by armored constructs.',
+    statRequirements: { DEF: 15, END: 12 },
+    rewardRarity: 'rare',
+    statRewards: { DEF: 4, END: 3 },
+    flavor: 'The walls do not bleed. You might.',
+    minDistanceKm: 10,
+  },
+  {
+    id: 'd_abyss',
+    name: 'Abyssal Rift',
+    rank: 'B',
+    description: 'A tear in reality. The strongest monsters live here.',
+    statRequirements: { ATK: 20, SPD: 15, INT: 15 },
+    rewardRarity: 'rare',
+    statRewards: { ATK: 5, SPD: 3, INT: 3 },
+    flavor: 'Beyond the rift, the rules change.',
+    minDistanceKm: 20,
+  },
+  {
+    id: 'd_dragon',
+    name: "Dragon's Throne",
+    rank: 'A',
+    description: 'An ancient dragon\'s domain. Pure power. No shortcuts.',
+    statRequirements: { ATK: 25, DEF: 20, END: 20, SPD: 15, INT: 15 },
+    rewardRarity: 'rare',
+    statRewards: { ATK: 5, DEF: 4, END: 4, SPD: 3, INT: 3 },
+    flavor: 'Dragons do not negotiate.',
+    minDistanceKm: 50,
+  },
+  {
+    id: 'd_sovereign',
+    name: "Sovereign's Gate",
+    rank: 'S',
+    description: 'The apex dungeon. Only the sovereign-ranked survive.',
+    statRequirements: { ATK: 40, DEF: 35, END: 35, SPD: 30, INT: 30, LCK: 20, CHA: 20, PER: 20 },
+    rewardRarity: 'legendary',
+    statRewards: { ATK: 10, DEF: 8, END: 8, SPD: 6, INT: 6, LCK: 4, CHA: 4, PER: 4 },
+    flavor: 'Here. The end of all things. The beginning of another.',
+    minDistanceKm: 100,
+  },
+]
+
+// ---------------------------------------------------------------------------
 // Distance tiers (for UI display)
 // ---------------------------------------------------------------------------
 

@@ -1,15 +1,9 @@
 // =============================================================================
 // Aeternum — Root Layout
 // =============================================================================
-// Expo Router's entry layout. Handles:
-//   - Font loading (Rajdhani + Share Tech Mono)
-//   - Auth gate — unauthenticated users never reach game screens
-//   - Tab navigation with element accent theming
-//   - Splash screen hold until fonts are ready
-// =============================================================================
 
-import React, { useEffect, useCallback, useState } from 'react'
-import { View, StyleSheet } from 'react-native'
+import { useEffect, useCallback, useState } from 'react'
+import { View, StyleSheet, Alert, Platform } from 'react-native'
 import { Tabs } from 'expo-router'
 import { useFonts } from 'expo-font'
 import * as SplashScreen from 'expo-splash-screen'
@@ -18,6 +12,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { supabase, ensurePlayer } from '@/lib/supabase'
 import { useStore } from '@/store/useStore'
 import { Onboarding } from '@/components/Onboarding'
+import { CharacterSetup } from '@/components/CharacterSetup'
 import { elementAccent, COLORS } from '@/theme/tokens'
 import type { Element } from '@/types'
 
@@ -29,15 +24,15 @@ export default function RootLayout() {
     ShareTechMono_400Regular: require('../assets/fonts/ShareTechMono_400Regular.ttf'),
   })
 
-  const { setUserId, setPlayer, player, reset } = useStore()
+  const {
+    setUserId, setPlayer, player, reset,
+    characterSetupDone, setCharacterSetupDone,
+    healthPermissionAsked, setHealthPermissionAsked,
+  } = useStore()
 
-  // True once the initial Supabase session check has completed. Until then we
-  // hold the onboarding overlay in a neutral state so returning guests don't
-  // see the "Begin" button flash before their session restores.
   const [authResolved, setAuthResolved] = useState(false)
 
-  // Auth listener — keeps store in sync with Supabase session. Fires once on
-  // mount with the restored (or absent) session, then on every change.
+  // Restore session on boot — AsyncStorage keeps the JWT between app restarts
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
@@ -49,20 +44,49 @@ export default function RootLayout() {
       }
       setAuthResolved(true)
     })
-
     return () => subscription.unsubscribe()
   }, [setUserId, setPlayer, reset])
+
+  // Request health permissions once after character setup is done
+  useEffect(() => {
+    if (!player || !characterSetupDone || healthPermissionAsked) return
+
+    async function requestHealth() {
+      setHealthPermissionAsked(true)
+      try {
+        const { initHealth } = await import('@/lib/health')
+        const granted = await initHealth()
+        if (!granted) {
+          Alert.alert(
+            'Health Access',
+            Platform.OS === 'ios'
+              ? 'Enable HealthKit in Settings → Health → Data Access & Devices → Aeternum to sync your runs.'
+              : 'Enable Health Connect permissions in Settings to sync your runs.',
+            [{ text: 'OK' }],
+          )
+        }
+      } catch {
+        // Health not available on this device — fail silently
+      }
+    }
+
+    requestHealth()
+  }, [player, characterSetupDone, healthPermissionAsked, setHealthPermissionAsked])
 
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded || fontError) await SplashScreen.hideAsync()
   }, [fontsLoaded, fontError])
 
-  // Font failure shouldn't trap the user on the splash screen forever — fall
-  // through to the app (system fonts) rather than hanging.
   if (!fontsLoaded && !fontError) return null
 
   const element = (player?.primary_element as Element | null) ?? null
   const palette = elementAccent(element)
+
+  // Show character setup for brand-new players (username still auto-generated "Runner-XXXX")
+  const isNewPlayer =
+    player !== null &&
+    !characterSetupDone &&
+    player.username.startsWith('Runner-')
 
   return (
     <GestureHandlerRootView style={styles.root}>
@@ -88,34 +112,26 @@ export default function RootLayout() {
             },
           }}
         >
-          <Tabs.Screen
-            name="index"
-            options={{ title: 'Command' }}
-          />
-          <Tabs.Screen
-            name="sync"
-            options={{ title: 'Sync' }}
-          />
-          <Tabs.Screen
-            name="rewards"
-            options={{ title: 'Rewards' }}
-          />
-          <Tabs.Screen
-            name="identity"
-            options={{ title: 'Identity' }}
-          />
-          <Tabs.Screen
-            name="progress"
-            options={{ title: 'Progress' }}
-          />
-          <Tabs.Screen
-            name="party"
-            options={{ title: 'Party' }}
-          />
+          <Tabs.Screen name="index" options={{ title: 'Command' }} />
+          <Tabs.Screen name="sync" options={{ title: 'Sync' }} />
+          <Tabs.Screen name="quests" options={{ title: 'Quests' }} />
+          <Tabs.Screen name="dungeons" options={{ title: 'Gates' }} />
+          <Tabs.Screen name="identity" options={{ title: 'Identity' }} />
+          <Tabs.Screen name="progress" options={{ title: 'Progress' }} />
+          {/* Hidden legacy routes */}
+          <Tabs.Screen name="rewards" options={{ href: null }} />
+          <Tabs.Screen name="party" options={{ href: null }} />
+          {/* Suppress character-setup from tabs — shown as overlay */}
+          <Tabs.Screen name="character-setup" options={{ href: null }} />
         </Tabs>
 
-        {/* Entry gate — covers the app until an authenticated player exists */}
+        {/* Entry gate — unauthenticated users */}
         {!player && <Onboarding ready={authResolved} />}
+
+        {/* Character setup overlay — new players only */}
+        {isNewPlayer && (
+          <CharacterSetup onComplete={() => setCharacterSetupDone(true)} />
+        )}
       </View>
     </GestureHandlerRootView>
   )

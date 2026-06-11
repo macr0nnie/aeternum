@@ -9,7 +9,7 @@
 // =============================================================================
 
 import { supabase } from '@/lib/supabase'
-import { initHealthConnect, readLastRun } from '@/lib/healthConnect'
+import { initHealth, readLastRun } from '@/lib/health'
 import type { SyncRunRequest, SyncRunResponse } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -38,8 +38,8 @@ export class SyncError extends Error {
 // and present an appropriate UI message.
 
 export async function syncRun(playerId: string): Promise<SyncRunResponse> {
-  // 1. Initialise Health Connect and request permissions
-  const ready = await initHealthConnect()
+  // 1. Initialise health platform and request permissions
+  const ready = await initHealth()
   if (!ready) {
     throw new SyncError(
       'Health Connect is not available or permissions were denied.',

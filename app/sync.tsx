@@ -1,54 +1,35 @@
 // =============================================================================
 // Aeternum — Run Sync Screen
 // =============================================================================
-// The player's primary post-run interaction. Reads Health Connect data and
-// submits to the Edge Function. State flows: idle → reading → uploading → done.
-//
-// On success the player is navigated to rewards.tsx automatically.
-// =============================================================================
 
-import React, { useEffect } from 'react'
-import { View, ScrollView, StyleSheet } from 'react-native'
-import { router } from 'expo-router'
+import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useStore, selectSyncState, selectPlayer } from '@/store/useStore'
-import { syncRun, formatDistance, formatDuration, formatPace, SyncError } from '@/lib/runSync'
-import { Panel, Heading, Label, Button, Spacer, Divider } from '@/components/UI'
-import { COLORS, SPACING, elementAccent } from '@/theme/tokens'
+import { useStore, selectSyncState, selectPlayer, selectLatestRunResult } from '@/store/useStore'
+import { syncRun, SyncError } from '@/lib/runSync'
+import { Heading, Label, Button, Spacer, Divider, SystemWindow, StatChip } from '@/components/UI'
+import { COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, elementAccent } from '@/theme/tokens'
 import type { Element } from '@/types'
 
 export default function SyncScreen() {
   const syncState = useStore(selectSyncState)
   const player = useStore(selectPlayer)
+  const latestResult = useStore(selectLatestRunResult)
   const { setSyncState, setSyncError, applyRunResult, syncError } = useStore()
 
   const element = (player?.primary_element as Element | null) ?? null
   const palette = elementAccent(element)
 
-  // Navigate to rewards once resolved
-  useEffect(() => {
-    if (syncState !== 'done') return
-    const timeout = setTimeout(() => router.replace('/rewards'), 800)
-    return () => clearTimeout(timeout)
-  }, [syncState])
-
   async function handleSync() {
     if (!player) return
-
     setSyncState('reading')
     setSyncError(null)
-
     try {
       setSyncState('uploading')
       const result = await syncRun(player.id)
       applyRunResult(result)
     } catch (err) {
       setSyncState('error')
-      if (err instanceof SyncError) {
-        setSyncError(err.message)
-      } else {
-        setSyncError('An unexpected error occurred.')
-      }
+      setSyncError(err instanceof SyncError ? err.message : 'An unexpected error occurred.')
     }
   }
 
@@ -57,6 +38,8 @@ export default function SyncScreen() {
     setSyncError(null)
   }
 
+  const isActive = syncState === 'reading' || syncState === 'uploading'
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -64,122 +47,167 @@ export default function SyncScreen() {
         <Heading size="xl" element={element}>Run Sync</Heading>
         <Spacer size="xs" />
         <Label variant="secondary">
-          Complete your run, then tap Sync to submit it.
+          Complete your run, then sync to resolve combat and claim rewards.
         </Label>
 
         <Spacer size="lg" />
 
-        {/* Status panel */}
-        <Panel element={element} elevated padding="lg">
+        {/* Status window */}
+        <SystemWindow
+          title={
+            syncState === 'done' ? 'RUN RESOLVED' :
+            syncState === 'error' ? 'SYNC FAILED' :
+            isActive ? 'SYNCING' : 'AWAITING SYNC'
+          }
+          variant={syncState === 'done' ? 'gold' : syncState === 'error' ? 'alert' : 'info'}
+        >
           {syncState === 'idle' && (
-            <>
-              <Label variant="tertiary">Status</Label>
-              <Spacer size="sm" />
-              <Label variant="primary" size="md">Ready to sync</Label>
-              <Spacer size="xs" />
-              <Label variant="secondary">
-                Your last completed run will be read from Health Connect.
-                Make sure your fitness tracker has finished syncing.
-              </Label>
-            </>
+            <View style={styles.statusBody}>
+              <Text style={[styles.statusLine, { color: COLORS.system }]}>{'> '}<Text style={styles.statusText}>READY</Text></Text>
+              <Text style={styles.statusDesc}>
+                Tap Sync Run below. Your last completed workout will be read from{' '}
+                {Platform.OS === 'ios' ? 'Apple Health' : 'Health Connect'}.
+              </Text>
+            </View>
           )}
 
           {syncState === 'reading' && (
-            <>
-              <Label variant="tertiary">Status</Label>
-              <Spacer size="sm" />
-              <Label variant="primary" size="md">Reading Health Connect...</Label>
-              <Spacer size="xs" />
-              <Label variant="secondary">
-                Fetching run data: distance, steps, duration, heart rate.
-              </Label>
-            </>
+            <View style={styles.statusBody}>
+              <Text style={[styles.statusLine, { color: COLORS.system }]}>
+                {'> '}<Text style={styles.statusText}>READING HEALTH DATA</Text>
+              </Text>
+              <Text style={styles.statusDesc}>
+                Fetching distance, steps, duration and heart rate...
+              </Text>
+              <View style={styles.dots}>
+                {[0, 1, 2].map((i) => (
+                  <View key={i} style={[styles.dot, { backgroundColor: COLORS.system }]} />
+                ))}
+              </View>
+            </View>
           )}
 
           {syncState === 'uploading' && (
-            <>
-              <Label variant="tertiary">Status</Label>
-              <Spacer size="sm" />
-              <Label variant="primary" size="md">Resolving combat...</Label>
-              <Spacer size="xs" />
-              <Label variant="secondary">
-                Submitting run to server. Validating and calculating rewards.
-              </Label>
-            </>
+            <View style={styles.statusBody}>
+              <Text style={[styles.statusLine, { color: palette.bright }]}>
+                {'> '}<Text style={styles.statusText}>RESOLVING COMBAT</Text>
+              </Text>
+              <Text style={styles.statusDesc}>
+                Server is validating run and calculating stat gains...
+              </Text>
+              <View style={styles.dots}>
+                {[0, 1, 2].map((i) => (
+                  <View key={i} style={[styles.dot, { backgroundColor: palette.base }]} />
+                ))}
+              </View>
+            </View>
           )}
 
-          {syncState === 'done' && (
-            <>
-              <Label variant="rarity" rarity="uncommon">Run Resolved</Label>
+          {syncState === 'done' && latestResult && (
+            <View style={styles.statusBody}>
+              <Text style={[styles.statusLine, { color: COLORS.systemGold }]}>
+                {'> '}<Text style={styles.statusText}>
+                  {latestResult.validated ? 'RUN VALIDATED' : 'RUN FLAGGED — PARTIAL REWARDS'}
+                </Text>
+              </Text>
               <Spacer size="sm" />
-              <Label variant="primary" size="md">Rewards incoming...</Label>
-            </>
+              {Object.keys(latestResult.stat_gains).length > 0 && (
+                <>
+                  <Label variant="tertiary" size="xs">Stat Gains</Label>
+                  <Spacer size="xs" />
+                  <View style={styles.statRow}>
+                    {Object.entries(latestResult.stat_gains).map(([k, v]) => (
+                      <StatChip
+                        key={k}
+                        statKey={k as any}
+                        value={player?.stats[k as keyof typeof player.stats] ?? 0}
+                        gain={v as number}
+                        element={element}
+                      />
+                    ))}
+                  </View>
+                </>
+              )}
+              {latestResult.rewards.length > 0 && (
+                <>
+                  <Spacer size="sm" />
+                  <Label variant="tertiary" size="xs">Rewards</Label>
+                  <Spacer size="xs" />
+                  {latestResult.rewards.map((r) => (
+                    <Text key={r.id} style={[styles.rewardLine, { color: rarityColors[r.rarity] }]}>
+                      {'◆ '}{r.name.toUpperCase()}
+                      <Text style={styles.rewardRarity}>{' ['}{r.rarity.toUpperCase()}{']'}</Text>
+                    </Text>
+                  ))}
+                </>
+              )}
+              {latestResult.flag_reason && (
+                <>
+                  <Spacer size="sm" />
+                  <Text style={styles.flagText}>{`⚠ ${latestResult.flag_reason}`}</Text>
+                </>
+              )}
+            </View>
           )}
 
           {syncState === 'error' && (
-            <>
-              <Label variant="tertiary">Sync Failed</Label>
-              <Spacer size="sm" />
-              <Label variant="primary" size="md">{syncError ?? 'Unknown error'}</Label>
-            </>
+            <View style={styles.statusBody}>
+              <Text style={[styles.statusLine, { color: COLORS.error }]}>
+                {'> '}<Text style={styles.statusText}>ERROR</Text>
+              </Text>
+              <Text style={[styles.statusDesc, { color: COLORS.textSecondary }]}>
+                {syncError ?? 'Unknown error.'}
+              </Text>
+            </View>
           )}
-        </Panel>
+        </SystemWindow>
 
         <Spacer size="lg" />
-        <Divider element={element} />
 
-        {/* Action buttons */}
+        {/* Action */}
         {(syncState === 'idle' || syncState === 'error') && (
           <>
             <Button
-              label={syncState === 'error' ? 'Retry Sync' : 'Sync Run'}
+              label={syncState === 'error' ? 'Retry Sync' : '◆  Sync Run  ◆'}
               element={element}
+              variant={syncState === 'error' ? 'ghost' : 'primary'}
               onPress={handleSync}
               fullWidth
             />
             {syncState === 'error' && (
               <>
                 <Spacer size="sm" />
-                <Button
-                  label="Cancel"
-                  element={element}
-                  variant="ghost"
-                  onPress={handleReset}
-                  fullWidth
-                />
+                <Button label="Cancel" element={element} variant="ghost" onPress={handleReset} fullWidth />
               </>
             )}
           </>
         )}
 
-        {(syncState === 'reading' || syncState === 'uploading') && (
-          <Button
-            label={syncState === 'reading' ? 'Reading...' : 'Uploading...'}
-            element={element}
-            loading
-            fullWidth
-            onPress={() => undefined}
-          />
+        {isActive && (
+          <Button label="Syncing..." element={element} loading fullWidth onPress={() => undefined} />
         )}
 
-        <Spacer size="xl" />
+        {syncState === 'done' && (
+          <Button label="Sync Another Run" element={element} variant="ghost" onPress={handleReset} fullWidth />
+        )}
 
-        {/* Info panel */}
-        <Panel variant="transparent" padding="sm">
-          <Label variant="tertiary">How it works</Label>
-          <Spacer size="xs" />
-          <Label variant="secondary">
-            Aeternum reads your completed exercise session from Health Connect.
-            Your phone stays in your pocket during the run — no GPS tracking,
-            no app open, no battery drain.
-          </Label>
+        <Spacer size="lg" />
+        <Divider element={element} />
+
+        <View style={styles.infoBox}>
+          <Text style={styles.infoTitle}>{'◆ HOW IT WORKS ◆'}</Text>
           <Spacer size="sm" />
-          <Label variant="secondary">
-            After syncing, the server validates your run and calculates combat
-            results, loot, and stat gains. If the run data looks unusual, it may
-            be flagged — this does not affect your account.
-          </Label>
-        </Panel>
+          <Text style={styles.infoText}>
+            Run with your phone in your pocket. Aeternum reads your completed workout from{' '}
+            {Platform.OS === 'ios' ? 'Apple Health (HealthKit)' : 'Health Connect'} after you finish —
+            no GPS tracking, no app open during your run.
+          </Text>
+          <Spacer size="sm" />
+          <Text style={styles.infoText}>
+            The server validates distance, pace and steps, then resolves stat gains and loot.
+            Suspicious data may be flagged — this does not affect your account.
+          </Text>
+        </View>
 
         <Spacer size="xl" />
       </ScrollView>
@@ -187,12 +215,57 @@ export default function SyncScreen() {
   )
 }
 
+const rarityColors: Record<string, string> = {
+  common: COLORS.common,
+  uncommon: COLORS.uncommon,
+  rare: COLORS.rare,
+  legendary: COLORS.legendary,
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.ground,
+  container: { flex: 1, backgroundColor: COLORS.ground },
+  scroll: { padding: SPACING.md },
+  statusBody: { gap: SPACING.xs },
+  statusLine: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs },
+  statusText: { fontFamily: FONTS.display, fontSize: FONT_SIZES.sm, letterSpacing: LETTER_SPACING.wide },
+  statusDesc: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    lineHeight: FONT_SIZES.xs * 1.6,
+    marginTop: SPACING.xs,
   },
-  scroll: {
-    padding: SPACING.md,
+  dots: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
+  dot: { width: 6, height: 6, borderRadius: 1, opacity: 0.7 },
+  statRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
+  rewardLine: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.sm,
+    letterSpacing: LETTER_SPACING.normal,
+    marginBottom: 2,
+  },
+  rewardRarity: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    opacity: 0.7,
+  },
+  flagText: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.warning,
+  },
+  infoBox: { paddingVertical: SPACING.sm },
+  infoTitle: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    letterSpacing: LETTER_SPACING.extraWide,
+    marginBottom: SPACING.xs,
+  },
+  infoText: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    lineHeight: FONT_SIZES.xs * 1.7,
   },
 })

@@ -1,13 +1,6 @@
 // =============================================================================
 // Aeternum — Shared UI Primitives
 // =============================================================================
-// All primitive components live here: Panel, Label, Heading, Button,
-// StatChip, RankBadge. These enforce the design language (angular panels,
-// uppercase labels, element accents) so screens compose consistently.
-//
-// No component here accepts a `style` prop from the outside — the design
-// language is enforced, not suggested.
-// =============================================================================
 
 import React from 'react'
 import {
@@ -27,6 +20,7 @@ import {
   SPACING,
   RADIUS,
   BORDER,
+  SHADOWS,
   elementAccent,
   rarityColor,
 } from '@/theme/tokens'
@@ -77,6 +71,202 @@ export const Panel: React.FC<PanelProps> = ({
 }
 
 // ---------------------------------------------------------------------------
+// CornerPanel — Korean RPG corner-bracket panel
+// ---------------------------------------------------------------------------
+
+interface CornerPanelProps {
+  children: React.ReactNode
+  color?: string
+  backgroundColor?: string
+  padding?: number
+  cornerSize?: number
+}
+
+export const CornerPanel: React.FC<CornerPanelProps> = ({
+  children,
+  color = COLORS.system,
+  backgroundColor = COLORS.surface,
+  padding = SPACING.md,
+  cornerSize = 14,
+}) => {
+  const cw = BORDER.thick
+  return (
+    <View style={[cornerStyles.wrapper, { backgroundColor, padding }]}>
+      {/* Corners */}
+      <View style={[cornerStyles.corner, cornerStyles.tl, { borderColor: color, width: cornerSize, height: cornerSize, borderTopWidth: cw, borderLeftWidth: cw }]} />
+      <View style={[cornerStyles.corner, cornerStyles.tr, { borderColor: color, width: cornerSize, height: cornerSize, borderTopWidth: cw, borderRightWidth: cw }]} />
+      <View style={[cornerStyles.corner, cornerStyles.bl, { borderColor: color, width: cornerSize, height: cornerSize, borderBottomWidth: cw, borderLeftWidth: cw }]} />
+      <View style={[cornerStyles.corner, cornerStyles.br, { borderColor: color, width: cornerSize, height: cornerSize, borderBottomWidth: cw, borderRightWidth: cw }]} />
+      {children}
+    </View>
+  )
+}
+
+const cornerStyles = StyleSheet.create({
+  wrapper: {
+    position: 'relative',
+    borderRadius: RADIUS.sharp,
+  } as ViewStyle,
+  corner: {
+    position: 'absolute',
+  } as ViewStyle,
+  tl: { top: 0, left: 0 } as ViewStyle,
+  tr: { top: 0, right: 0 } as ViewStyle,
+  bl: { bottom: 0, left: 0 } as ViewStyle,
+  br: { bottom: 0, right: 0 } as ViewStyle,
+})
+
+// ---------------------------------------------------------------------------
+// SystemWindow — Korean RPG "[ SYSTEM ]" notification panel
+// ---------------------------------------------------------------------------
+
+interface SystemWindowProps {
+  children: React.ReactNode
+  title?: string
+  variant?: 'info' | 'gold' | 'alert'
+}
+
+export const SystemWindow: React.FC<SystemWindowProps> = ({
+  children,
+  title = 'SYSTEM',
+  variant = 'info',
+}) => {
+  const borderColor =
+    variant === 'gold' ? COLORS.systemGold :
+    variant === 'alert' ? COLORS.systemAlert :
+    COLORS.system
+
+  const headerBg =
+    variant === 'gold' ? COLORS.systemGoldDim :
+    variant === 'alert' ? COLORS.systemAlertDim :
+    COLORS.systemDim
+
+  const glow =
+    variant === 'gold' ? SHADOWS.glowGold :
+    variant === 'alert' ? SHADOWS.glowRed :
+    SHADOWS.glowBlue
+
+  return (
+    <View style={[sysStyles.container, { borderColor }, glow]}>
+      <View style={[sysStyles.header, { backgroundColor: headerBg, borderBottomColor: borderColor }]}>
+        <Text style={[sysStyles.headerText, { color: borderColor }]}>
+          {'◆ '}{title}{' ◆'}
+        </Text>
+      </View>
+      <View style={sysStyles.body}>{children}</View>
+    </View>
+  )
+}
+
+const sysStyles = StyleSheet.create({
+  container: {
+    borderWidth: 1,
+    borderRadius: RADIUS.sharp,
+    overflow: 'hidden',
+    backgroundColor: COLORS.surface,
+  } as ViewStyle,
+  header: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs + 2,
+    borderBottomWidth: 1,
+  } as ViewStyle,
+  headerText: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.xs,
+    letterSpacing: LETTER_SPACING.extraWide,
+  } as TextStyle,
+  body: {
+    padding: SPACING.md,
+  } as ViewStyle,
+})
+
+// ---------------------------------------------------------------------------
+// StatBar — horizontal stat progress bar
+// ---------------------------------------------------------------------------
+
+interface StatBarProps {
+  statKey: StatKey
+  value: number
+  maxValue?: number
+  color?: string
+  showLabel?: boolean
+}
+
+export const StatBar: React.FC<StatBarProps> = ({
+  statKey,
+  value,
+  maxValue = 50,
+  color = COLORS.system,
+  showLabel = true,
+}) => {
+  const pct = Math.min(value / maxValue, 1)
+
+  return (
+    <View style={statBarStyles.row}>
+      {showLabel && (
+        <Text style={[statBarStyles.key, { color }]}>{statKey}</Text>
+      )}
+      <View style={statBarStyles.track}>
+        <View style={[statBarStyles.fill, { width: `${pct * 100}%`, backgroundColor: color }]} />
+        {/* Segment marks */}
+        {[0.25, 0.5, 0.75].map((p) => (
+          <View
+            key={p}
+            style={[statBarStyles.mark, { left: `${p * 100}%` }]}
+          />
+        ))}
+      </View>
+      <Text style={statBarStyles.value}>{value}</Text>
+    </View>
+  )
+}
+
+const statBarStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginBottom: SPACING.xs + 2,
+  } as ViewStyle,
+  key: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.xs,
+    letterSpacing: LETTER_SPACING.wide,
+    width: 32,
+  } as TextStyle,
+  track: {
+    flex: 1,
+    height: 6,
+    backgroundColor: COLORS.surfaceHigh,
+    borderRadius: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  } as ViewStyle,
+  fill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    borderRadius: 1,
+    opacity: 0.85,
+  } as ViewStyle,
+  mark: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: COLORS.ground,
+  } as ViewStyle,
+  value: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    width: 28,
+    textAlign: 'right',
+  } as TextStyle,
+})
+
+// ---------------------------------------------------------------------------
 // Heading
 // ---------------------------------------------------------------------------
 
@@ -85,6 +275,7 @@ interface HeadingProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'display'
   element?: Element | null
   dim?: boolean
+  system?: boolean
 }
 
 export const Heading: React.FC<HeadingProps> = ({
@@ -92,9 +283,15 @@ export const Heading: React.FC<HeadingProps> = ({
   size = 'lg',
   element = null,
   dim = false,
+  system = false,
 }) => {
   const palette = elementAccent(element)
-  const color = dim ? COLORS.textSecondary : element ? palette.bright : COLORS.textPrimary
+  const color =
+    system ? COLORS.system :
+    dim ? COLORS.textSecondary :
+    element ? palette.bright :
+    COLORS.textPrimary
+
   const fontSize =
     size === 'display' ? FONT_SIZES.display :
     size === 'xl' ? FONT_SIZES.xxl :
@@ -124,7 +321,7 @@ export const Heading: React.FC<HeadingProps> = ({
 
 interface LabelProps {
   children: string | number
-  variant?: 'primary' | 'secondary' | 'tertiary' | 'mono' | 'rarity'
+  variant?: 'primary' | 'secondary' | 'tertiary' | 'mono' | 'rarity' | 'system' | 'gold'
   rarity?: Rarity
   size?: 'xs' | 'sm' | 'md' | 'lg'
   uppercase?: boolean
@@ -141,6 +338,8 @@ export const Label: React.FC<LabelProps> = ({
     variant === 'rarity' && rarity ? rarityColor(rarity) :
     variant === 'primary' ? COLORS.textPrimary :
     variant === 'tertiary' ? COLORS.textTertiary :
+    variant === 'system' ? COLORS.system :
+    variant === 'gold' ? COLORS.systemGold :
     COLORS.textSecondary
 
   const fontFamily = variant === 'mono' ? FONTS.mono : FONTS.display
@@ -176,7 +375,7 @@ interface ButtonProps {
   label: string
   onPress: () => void
   element?: Element | null
-  variant?: 'primary' | 'ghost' | 'danger'
+  variant?: 'primary' | 'ghost' | 'danger' | 'system'
   loading?: boolean
   disabled?: boolean
   fullWidth?: boolean
@@ -196,29 +395,32 @@ export const Button: React.FC<ButtonProps> = ({
   const backgroundColor =
     variant === 'ghost' ? 'transparent' :
     variant === 'danger' ? COLORS.error + '22' :
+    variant === 'system' ? COLORS.systemDim :
     palette.mid
 
   const borderColor =
     variant === 'ghost' ? palette.border :
     variant === 'danger' ? COLORS.error :
+    variant === 'system' ? COLORS.system :
     palette.base
 
   const textColor =
     variant === 'ghost' ? palette.base :
     variant === 'danger' ? COLORS.error :
+    variant === 'system' ? COLORS.system :
     palette.bright
 
   return (
     <TouchableOpacity
       onPress={onPress}
       disabled={disabled || loading}
-      activeOpacity={0.7}
+      activeOpacity={0.75}
       style={[
         styles.button,
         {
           backgroundColor,
           borderColor,
-          opacity: disabled ? 0.4 : 1,
+          opacity: disabled ? 0.35 : 1,
           alignSelf: fullWidth ? 'stretch' : 'flex-start',
         },
       ]}
@@ -226,12 +428,7 @@ export const Button: React.FC<ButtonProps> = ({
       {loading ? (
         <ActivityIndicator size="small" color={textColor} />
       ) : (
-        <Text
-          style={[
-            styles.buttonLabel,
-            { color: textColor },
-          ]}
-        >
+        <Text style={[styles.buttonLabel, { color: textColor }]}>
           {label.toUpperCase()}
         </Text>
       )}
@@ -274,13 +471,13 @@ export const StatChip: React.FC<StatChipProps> = ({ statKey, value, gain, elemen
 // RankBadge
 // ---------------------------------------------------------------------------
 
-const RANK_COLORS: Record<Rank, string> = {
-  E: '#8a90a8',
-  D: '#4ade80',
-  C: '#60a5fa',
+export const RANK_COLORS: Record<Rank, string> = {
+  E: '#4a5068',
+  D: '#3ddc84',
+  C: '#4fa8f8',
   B: '#a78bfa',
   A: '#f97316',
-  S: '#f59e0b',
+  S: '#ffd54f',
   Sovereign: '#e11d48',
 }
 
@@ -300,18 +497,46 @@ export const RankBadge: React.FC<RankBadgeProps> = ({ rank, size = 'md' }) => {
         styles.rankBadge,
         {
           borderColor: color,
+          backgroundColor: color + '18',
           paddingHorizontal: padding + 4,
           paddingVertical: padding,
         },
       ]}
     >
-      <Text
-        style={[
-          styles.rankBadgeText,
-          { color, fontSize },
-        ]}
-      >
+      <Text style={[styles.rankBadgeText, { color, fontSize }]}>
         {rank === 'Sovereign' ? 'SOVEREIGN' : `RANK ${rank}`}
+      </Text>
+    </View>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DungeonRankBadge — for F/E/D/C/B/A/S dungeon ranks
+// ---------------------------------------------------------------------------
+
+const DUNGEON_RANK_COLORS: Record<string, string> = {
+  F: '#4a5068',
+  E: '#3ddc84',
+  D: '#4fa8f8',
+  C: '#a78bfa',
+  B: '#f97316',
+  A: '#ffd54f',
+  S: '#e11d48',
+}
+
+interface DungeonRankBadgeProps {
+  rank: string
+  size?: 'sm' | 'md'
+}
+
+export const DungeonRankBadge: React.FC<DungeonRankBadgeProps> = ({ rank, size = 'md' }) => {
+  const color = DUNGEON_RANK_COLORS[rank] ?? COLORS.textSecondary
+  const fontSize = size === 'sm' ? FONT_SIZES.xs : FONT_SIZES.sm
+
+  return (
+    <View style={[styles.rankBadge, { borderColor: color, backgroundColor: color + '18', paddingHorizontal: 8, paddingVertical: 4 }]}>
+      <Text style={[styles.rankBadgeText, { color, fontSize }]}>
+        {`RANK ${rank}`}
       </Text>
     </View>
   )
@@ -335,6 +560,44 @@ export const Divider: React.FC<{ element?: Element | null }> = ({ element }) => 
 }
 
 // ---------------------------------------------------------------------------
+// SectionHeader — Korean RPG section divider with ◆ decorator
+// ---------------------------------------------------------------------------
+
+interface SectionHeaderProps {
+  title: string
+  color?: string
+}
+
+export const SectionHeader: React.FC<SectionHeaderProps> = ({
+  title,
+  color = COLORS.system,
+}) => (
+  <View style={secStyles.row}>
+    <View style={[secStyles.line, { backgroundColor: color + '40' }]} />
+    <Text style={[secStyles.text, { color }]}>{'◆ '}{title.toUpperCase()}{' ◆'}</Text>
+    <View style={[secStyles.line, { backgroundColor: color + '40' }]} />
+  </View>
+)
+
+const secStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginVertical: SPACING.md,
+  } as ViewStyle,
+  line: {
+    flex: 1,
+    height: 1,
+  } as ViewStyle,
+  text: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.xs,
+    letterSpacing: LETTER_SPACING.extraWide,
+  } as TextStyle,
+})
+
+// ---------------------------------------------------------------------------
 // Spacer
 // ---------------------------------------------------------------------------
 
@@ -356,9 +619,7 @@ const styles = StyleSheet.create({
     fontFamily: FONTS.display,
   } as TextStyle,
 
-  label: {
-    // fontFamily set inline from variant
-  } as TextStyle,
+  label: {} as TextStyle,
 
   button: {
     borderWidth: BORDER.mid,

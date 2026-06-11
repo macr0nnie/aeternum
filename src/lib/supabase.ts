@@ -151,3 +151,12 @@ export async function fetchRunHistory(playerId: string, limit = 20) {
     .order('started_at', { ascending: false })
     .limit(limit)
 }
+
+export async function updatePlayer(playerId: string, updates: Partial<import('@/types').Player>) {
+  return supabase
+    .from('players')
+    .update(updates)
+    .eq('id', playerId)
+    .select('*')
+    .single()
+}

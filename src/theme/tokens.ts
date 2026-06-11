@@ -17,30 +17,40 @@ import type { Element } from '@/types'
 
 export const COLORS = {
   // Backgrounds
-  ground: '#0a0c12',        // deepest background — root screens
-  surface: '#0f1118',       // panel surface
-  surfaceHigh: '#141720',   // elevated surface — modals, overlays
-  surfaceMid: '#111419',    // midpoint — card backgrounds
+  ground: '#080b13',        // deepest background — root screens
+  surface: '#0d1120',       // panel surface
+  surfaceHigh: '#121828',   // elevated surface — modals, overlays
+  surfaceMid: '#0f1420',    // midpoint — card backgrounds
+  locked: '#0a0d16',        // locked dungeon background
 
   // Text (all contrast checked at 15:1 min on ground)
-  textPrimary: '#eef0f5',
-  textSecondary: '#8a90a8',
-  textTertiary: '#4a5068',  // disabled / placeholder
+  textPrimary: '#e8ecf8',
+  textSecondary: '#7a84a8',
+  textTertiary: '#3d4560',  // disabled / placeholder
 
   // Borders
   borderLow: 'rgba(255,255,255,0.05)',
   borderMid: 'rgba(255,255,255,0.10)',
-  borderHigh: 'rgba(255,255,255,0.18)',
+  borderHigh: 'rgba(255,255,255,0.20)',
 
   // Rarity
-  common: '#8a90a8',
-  uncommon: '#4ade80',
-  rare: '#60a5fa',
-  legendary: '#f59e0b',
+  common: '#7a84a8',
+  uncommon: '#3ddc84',
+  rare: '#4fa8f8',
+  legendary: '#f0a030',
+
+  // System (Korean RPG UI accent)
+  system: '#4fc3f7',        // system notification blue
+  systemDim: 'rgba(79,195,247,0.12)',
+  systemBorder: 'rgba(79,195,247,0.35)',
+  systemGold: '#ffd54f',    // achievement / legendary gold
+  systemGoldDim: 'rgba(255,213,79,0.12)',
+  systemAlert: '#e53935',   // danger / boss alert
+  systemAlertDim: 'rgba(229,57,53,0.12)',
 
   // Semantic
-  error: '#f87171',
-  success: '#4ade80',
+  error: '#f06060',
+  success: '#3ddc84',
   warning: '#fbbf24',
 } as const
 
@@ -246,7 +256,43 @@ export const SHADOWS = {
     shadowRadius: 8,
     elevation: 6,
   },
+  // Glow shadows for Korean RPG accent panels
+  glowBlue: {
+    shadowColor: '#4fc3f7',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  glowGold: {
+    shadowColor: '#ffd54f',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  glowRed: {
+    shadowColor: '#e53935',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    elevation: 8,
+  },
 } as const
+
+// ---------------------------------------------------------------------------
+// Rank glow colours
+// ---------------------------------------------------------------------------
+
+export const RANK_GLOW: Record<string, string> = {
+  E: '#4a5068',
+  D: '#3ddc84',
+  C: '#4fa8f8',
+  B: '#a78bfa',
+  A: '#f97316',
+  S: '#ffd54f',
+  Sovereign: '#e11d48',
+}
 
 // ---------------------------------------------------------------------------
 // Animation durations (ms)
