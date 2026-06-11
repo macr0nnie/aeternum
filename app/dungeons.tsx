@@ -6,9 +6,9 @@
 // =============================================================================
 
 import React, { useState } from 'react'
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal } from 'react-native'
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useStore, selectPlayer, selectClearedDungeonIds } from '@/store/useStore'
+import { useStore, selectPlayer, selectClearedDungeonIds, selectEquipped, selectPartyMembers } from '@/store/useStore'
 import {
   Heading, Label, Button, Spacer, Divider, DungeonRankBadge, SystemWindow,
   CornerPanel, SectionHeader, StatBar,
@@ -18,25 +18,295 @@ import {
   elementAccent, SHADOWS,
 } from '@/theme/tokens'
 import { DUNGEON_ENTRIES, STAT_KEYS, STAT_LABELS, type DungeonEntry, type Element } from '@/types'
+import { resolveCoOpGate, type PublicPlayer } from '@/lib/supabase'
 
-const DUNGEON_RANK_COLORS: Record<string, string> = {
+// ---------------------------------------------------------------------------
+// Win probability calculator (client-side preview only — server resolves actual outcome)
+// ---------------------------------------------------------------------------
+
+const C_PLUS_RANKS = new Set(['C', 'B', 'A', 'S'])
+const WIN_PROB_FLOOR = 0.05   // always at least 5%
+const WIN_PROB_CEIL  = 0.97   // never guaranteed
+
+function calcWinProbability(dungeon: DungeonEntry, stats: Record<string, number>, totalDistance: number): number {
+  const reqs = dungeon.statRequirements
+  const entries = Object.entries(reqs)
+  if (entries.length === 0) return WIN_PROB_CEIL
+
+  let totalExcess = 0
+  for (const [key, required] of entries) {
+    const have = stats[key] ?? 0
+    const excess = required > 0 ? (have - required) / required : 1
+    totalExcess += excess
+  }
+  const avgExcess = totalExcess / entries.length
+
+  // avgExcess of 0 → 50% base win chance; each +0.1 adds ~5%; each -0.1 subtracts ~5%
+  const raw = 0.5 + avgExcess * 0.5
+  return Math.min(WIN_PROB_CEIL, Math.max(WIN_PROB_FLOOR, raw))
+}
+
+function winProbLabel(prob: number): { label: string; color: string } {
+  if (prob >= 0.85) return { label: 'NEAR CERTAIN', color: COLORS.success }
+  if (prob >= 0.65) return { label: 'FAVORABLE',    color: '#3ddc84' }
+  if (prob >= 0.45) return { label: 'CONTESTED',    color: COLORS.warning }
+  if (prob >= 0.25) return { label: 'DANGEROUS',    color: '#f97316' }
+  return { label: 'CRITICAL RISK', color: COLORS.error }
+}
+
+// ---------------------------------------------------------------------------
+// Win probability modal (C+ gates only)
+// ---------------------------------------------------------------------------
+
+interface WinProbModalProps {
+  dungeon: DungeonEntry
+  winProb: number
+  hasVoidLens: boolean
+  onConfirm: () => void
+  onClose: () => void
+}
+
+function WinProbModal({ dungeon, winProb, hasVoidLens, onConfirm, onClose }: WinProbModalProps) {
+  const pct = Math.round(winProb * 100)
+  const { label, color } = winProbLabel(winProb)
+  const rankColor = DUNGEON_RANK_COLORS[dungeon.rank]
+
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <SystemWindow
+            title="⚠  GATE ANALYSIS"
+            variant={dungeon.rank === 'S' ? 'gold' : dungeon.rank === 'A' || dungeon.rank === 'B' ? 'alert' : 'info'}
+          >
+            <Text style={styles.modalDungeonName}>{dungeon.name.toUpperCase()}</Text>
+            <Spacer size="xs" />
+
+            {/* Win probability bar */}
+            <View style={styles.probSection}>
+              <View style={styles.probLabelRow}>
+                <Text style={[styles.probLabel, { color }]}>{label}</Text>
+                <Text style={[styles.probPct, { color }]}>{pct}%</Text>
+              </View>
+              <View style={styles.probTrack}>
+                <View style={[styles.probFill, { width: `${pct}%` as any, backgroundColor: color }]} />
+              </View>
+              {!hasVoidLens && (
+                <Text style={styles.probHint}>Equip a Void Lens relic to see exact values.</Text>
+              )}
+            </View>
+
+            <Divider />
+            <Text style={styles.modalFlavor}>{`"${dungeon.flavor}"`}</Text>
+            <Spacer size="xs" />
+            <Text style={styles.probWarning}>
+              {winProb < 0.5
+                ? 'Defeat in this gate will cost you stat points. Prepare carefully.'
+                : 'Your stats suggest a solid chance of success. Proceed with confidence.'}
+            </Text>
+
+            <Spacer size="md" />
+            <View style={styles.modalActions}>
+              <Button label="◆ ENTER GATE ◆" variant="system" onPress={onConfirm} fullWidth />
+              <Spacer size="sm" />
+              <Button label="Retreat" variant="ghost" onPress={onClose} fullWidth />
+            </View>
+          </SystemWindow>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Co-op member selector modal
+// ---------------------------------------------------------------------------
+
+interface CoOpModalProps {
+  dungeon: DungeonEntry
+  partyMembers: PublicPlayer[]
+  hostId: string
+  onConfirm: (participantIds: string[]) => void
+  onClose: () => void
+}
+
+function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpModalProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const rankColor = DUNGEON_RANK_COLORS_LOCAL[dungeon.rank] ?? COLORS.system
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const participantIds = [hostId, ...Array.from(selected)]
+  const bonus = selected.size > 0 ? `+${selected.size * 15}% stat bonus` : 'Solo run'
+
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <SystemWindow title="⚔  CO-OP GATE" variant="info">
+            <Text style={styles.modalDungeonName}>{dungeon.name.toUpperCase()}</Text>
+            <Spacer size="xs" />
+            <Text style={[styles.coopBonus, { color: selected.size > 0 ? COLORS.success : COLORS.textTertiary }]}>
+              {bonus}
+            </Text>
+            <Spacer size="sm" />
+
+            {partyMembers.length === 0 ? (
+              <Text style={styles.coopEmpty}>
+                No party members yet. Add hunters from the Party tab to tackle gates together.
+              </Text>
+            ) : (
+              <>
+                <Label variant="tertiary" size="xs">SELECT PARTY MEMBERS</Label>
+                <Spacer size="xs" />
+                {partyMembers.map(m => {
+                  const isSelected = selected.has(m.id)
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      style={[coopStyles.memberRow, isSelected && { borderColor: COLORS.success, backgroundColor: COLORS.success + '10' }]}
+                      onPress={() => toggle(m.id)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={coopStyles.memberInfo}>
+                        <Text style={coopStyles.memberName}>{m.username}</Text>
+                        <Text style={coopStyles.memberSub}>
+                          RANK {m.rank} · PWR {m.total_stat_power}
+                        </Text>
+                      </View>
+                      <View style={[coopStyles.checkbox, isSelected && { backgroundColor: COLORS.success }]}>
+                        {isSelected && <Text style={coopStyles.checkmark}>✓</Text>}
+                      </View>
+                    </TouchableOpacity>
+                  )
+                })}
+              </>
+            )}
+
+            <Spacer size="md" />
+            <View style={styles.modalActions}>
+              <Button
+                label={selected.size > 0 ? `◆ ENTER WITH PARTY (${participantIds.length}) ◆` : '◆ ENTER SOLO ◆'}
+                variant="system"
+                onPress={() => onConfirm(participantIds)}
+                fullWidth
+              />
+              <Spacer size="sm" />
+              <Button label="Retreat" variant="ghost" onPress={onClose} fullWidth />
+            </View>
+          </SystemWindow>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Co-op result modal
+// ---------------------------------------------------------------------------
+
+interface CoOpResultProps {
+  won: boolean
+  winProb: number
+  participantCount: number
+  statGains: Record<string, number>
+  onClose: () => void
+}
+
+function CoOpResultModal({ won, winProb, participantCount, statGains, onClose }: CoOpResultProps) {
+  return (
+    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <SystemWindow
+            title={won ? '◆ GATE CLEARED ◆' : '◆ GATE FAILED ◆'}
+            variant={won ? 'gold' : 'alert'}
+          >
+            <Text style={[styles.coopResultLine, { color: won ? COLORS.systemGold : COLORS.systemAlert }]}>
+              {won ? 'Victory — all participants rewarded.' : 'Defeat — no stat gains this attempt.'}
+            </Text>
+            <Spacer size="xs" />
+            <Text style={styles.coopResultSub}>
+              Party size: {participantCount}  ·  Win probability was {Math.round(winProb * 100)}%
+            </Text>
+            {won && Object.keys(statGains).length > 0 && (
+              <>
+                <Spacer size="sm" />
+                <Label variant="tertiary" size="xs">STAT GAINS (ALL MEMBERS)</Label>
+                <Spacer size="xs" />
+                <View style={styles.rewardGrid}>
+                  {Object.entries(statGains).map(([k, v]) => (
+                    <View key={k} style={styles.rewardChip}>
+                      <Text style={styles.rewardKey}>{k}</Text>
+                      <Text style={styles.rewardVal}>{`+${v}`}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+            <Spacer size="md" />
+            <Button label="Close" variant="ghost" onPress={onClose} fullWidth />
+          </SystemWindow>
+        </View>
+      </View>
+    </Modal>
+  )
+}
+
+const coopStyles = StyleSheet.create({
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.sm,
+    marginBottom: SPACING.xs,
+    borderWidth: BORDER.thin,
+    borderColor: COLORS.borderMid,
+    borderRadius: RADIUS.slight,
+    backgroundColor: COLORS.surface,
+  },
+  memberInfo: { flex: 1 },
+  memberName: { fontFamily: FONTS.display, fontSize: FONT_SIZES.sm, color: COLORS.textPrimary },
+  memberSub: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, marginTop: 2 },
+  checkbox: {
+    width: 20, height: 20, borderWidth: BORDER.thin, borderColor: COLORS.borderMid,
+    borderRadius: 3, alignItems: 'center', justifyContent: 'center',
+  },
+  checkmark: { fontFamily: FONTS.mono, fontSize: 12, color: COLORS.ground },
+})
+
+const DUNGEON_RANK_COLORS_LOCAL: Record<string, string> = {
   F: '#4a5068', E: '#3ddc84', D: '#4fa8f8',
   C: '#a78bfa', B: '#f97316', A: '#ffd54f', S: '#e11d48',
 }
 
+const DUNGEON_RANK_COLORS: Record<string, string> = DUNGEON_RANK_COLORS_LOCAL
+
 export default function DungeonsScreen() {
   const player = useStore(selectPlayer)
   const clearedIds = useStore(selectClearedDungeonIds)
+  const equipped = useStore(selectEquipped)
+  const partyMembers = useStore(selectPartyMembers)
   const { clearDungeon } = useStore()
 
   const [selectedDungeon, setSelectedDungeon] = useState<DungeonEntry | null>(null)
+  const [showWinProb, setShowWinProb] = useState(false)
   const [showClearModal, setShowClearModal] = useState(false)
+  const [showCoOp, setShowCoOp] = useState(false)
+  const [coOpLoading, setCoOpLoading] = useState(false)
+  const [coOpResult, setCoOpResult] = useState<{ won: boolean; winProb: number; participantCount: number; statGains: Record<string, number> } | null>(null)
 
   const element = (player?.primary_element as Element | null) ?? null
   const palette = elementAccent(element)
   const rawStats = player?.stats ?? { ATK: 0, SPD: 0, INT: 0, LCK: 0, DEF: 0, END: 0, PER: 0, CHA: 0 }
   const stats: Record<string, number> = rawStats as unknown as Record<string, number>
   const totalDistance = player?.total_distance_km ?? 0
+  const hasVoidLens = equipped.relic?.id === 'rel_void_lens'
 
   function meetsRequirements(dungeon: DungeonEntry): boolean {
     if (totalDistance < dungeon.minDistanceKm) return false
@@ -49,7 +319,50 @@ export default function DungeonsScreen() {
 
   function handleEnterDungeon(dungeon: DungeonEntry) {
     setSelectedDungeon(dungeon)
-    setShowClearModal(true)
+    // Show win probability analysis first for C+ gates
+    if (C_PLUS_RANKS.has(dungeon.rank)) {
+      setShowWinProb(true)
+    } else {
+      setShowClearModal(true)
+    }
+  }
+
+  function handleWinProbConfirm() {
+    setShowWinProb(false)
+    setShowCoOp(true)
+  }
+
+  async function handleCoOpConfirm(participantIds: string[]) {
+    if (!selectedDungeon || !player) return
+    setShowCoOp(false)
+
+    if (participantIds.length === 1) {
+      // Solo — use local clear path
+      clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+      setSelectedDungeon(null)
+      return
+    }
+
+    // Co-op — call server
+    setCoOpLoading(true)
+    try {
+      const result = await resolveCoOpGate(selectedDungeon.id, participantIds)
+      if (result.won) {
+        clearDungeon(selectedDungeon.id, result.outcomes.find(o => o.player_id === player.id)?.stat_gains ?? {})
+      }
+      setCoOpResult({
+        won: result.won,
+        winProb: result.win_probability,
+        participantCount: result.participant_count,
+        statGains: (result.outcomes[0]?.stat_gains ?? {}) as Record<string, number>,
+      })
+    } catch (err) {
+      // Fallback to local solo clear on server error
+      clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+    } finally {
+      setCoOpLoading(false)
+      setSelectedDungeon(null)
+    }
   }
 
   function handleClear() {
@@ -129,6 +442,51 @@ export default function DungeonsScreen() {
 
         <Spacer size="xl" />
       </ScrollView>
+
+      {/* Win probability modal — C+ gates only */}
+      {showWinProb && selectedDungeon && (
+        <WinProbModal
+          dungeon={selectedDungeon}
+          winProb={calcWinProbability(selectedDungeon, stats, totalDistance)}
+          hasVoidLens={hasVoidLens}
+          onConfirm={handleWinProbConfirm}
+          onClose={() => { setShowWinProb(false); setSelectedDungeon(null) }}
+        />
+      )}
+
+      {/* Co-op member selector */}
+      {showCoOp && selectedDungeon && player && (
+        <CoOpModal
+          dungeon={selectedDungeon}
+          partyMembers={partyMembers}
+          hostId={player.id}
+          onConfirm={handleCoOpConfirm}
+          onClose={() => { setShowCoOp(false); setSelectedDungeon(null) }}
+        />
+      )}
+
+      {/* Co-op loading overlay */}
+      {coOpLoading && (
+        <Modal transparent visible>
+          <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center' }]}>
+            <ActivityIndicator size="large" color={COLORS.system} />
+            <Text style={{ fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.system, marginTop: SPACING.md, letterSpacing: LETTER_SPACING.wide }}>
+              RESOLVING GATE...
+            </Text>
+          </View>
+        </Modal>
+      )}
+
+      {/* Co-op result */}
+      {coOpResult && (
+        <CoOpResultModal
+          won={coOpResult.won}
+          winProb={coOpResult.winProb}
+          participantCount={coOpResult.participantCount}
+          statGains={coOpResult.statGains}
+          onClose={() => setCoOpResult(null)}
+        />
+      )}
 
       {/* Clear confirmation modal */}
       <Modal
@@ -376,6 +734,71 @@ const styles = StyleSheet.create({
     color: COLORS.success,
   },
   modalActions: {},
+
+  // Win probability modal
+  probSection: { marginVertical: SPACING.sm },
+  probLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+  },
+  probLabel: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.sm,
+    letterSpacing: LETTER_SPACING.wide,
+  },
+  probPct: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.lg,
+  },
+  probTrack: {
+    height: 8,
+    backgroundColor: COLORS.surfaceHigh,
+    borderRadius: RADIUS.full,
+    overflow: 'hidden',
+  },
+  probFill: {
+    height: 8,
+    borderRadius: RADIUS.full,
+  },
+  probHint: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  probWarning: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+
+  // Co-op modals
+  coopBonus: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.sm,
+    letterSpacing: LETTER_SPACING.wide,
+  },
+  coopEmpty: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  coopResultLine: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.md,
+    letterSpacing: LETTER_SPACING.normal,
+    marginBottom: SPACING.xs,
+  },
+  coopResultSub: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+  },
 })
 
 const cardStyles = StyleSheet.create({

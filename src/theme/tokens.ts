@@ -177,8 +177,10 @@ export function rarityColor(rarity: string): string {
 // ---------------------------------------------------------------------------
 
 export const FONTS = {
-  display: 'Rajdhani_700Bold',    // headings, labels, buttons
-  mono: 'ShareTechMono_400Regular', // data, numbers, distances
+  display: 'Rajdhani_700Bold',
+  heading: 'Rajdhani_700Bold',   // alias
+  body: 'Rajdhani_700Bold',      // alias — no separate body font loaded
+  mono: 'ShareTechMono_400Regular',
 } as const
 
 export const FONT_SIZES = {
@@ -193,9 +195,10 @@ export const FONT_SIZES = {
 
 export const LETTER_SPACING = {
   tight: 0.5,
-  normal: 1.5,    // default for uppercase labels
+  normal: 1.5,
   wide: 3,
   extraWide: 5,
+  widest: 7,
 } as const
 
 export const LINE_HEIGHT = {
@@ -224,7 +227,12 @@ export const SPACING = {
 
 export const RADIUS = {
   sharp: 2,
-  slight: 4,    // maximum used in this design language
+  slight: 4,
+  xs: 4,
+  sm: 6,
+  md: 8,
+  lg: 12,
+  full: 999,
 } as const
 
 // ---------------------------------------------------------------------------

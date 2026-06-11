@@ -69,7 +69,7 @@ export function buildLocalGuestPlayer(): Player {
     primary_element: null,
     secondary_element: null,
     stats: { ATK: 0, SPD: 0, INT: 0, LCK: 0, DEF: 0, END: 0, PER: 0, CHA: 0 },
-    title: 'Unawakened',
+    title: 'Unawakened',  // matches DB default from migration 002
     title_chronicle: [],
     created_at: now,
     updated_at: now,
@@ -159,4 +159,110 @@ export async function updatePlayer(playerId: string, updates: Partial<import('@/
     .eq('id', playerId)
     .select('*')
     .single()
+}
+
+// ---------------------------------------------------------------------------
+// Party helpers
+// ---------------------------------------------------------------------------
+
+export interface PublicPlayer {
+  id: string
+  username: string
+  rank: string
+  primary_element: string | null
+  total_distance_km: number
+  total_stat_power: number
+}
+
+export async function searchPlayers(query: string, limit = 10) {
+  return supabase
+    .from('player_public')
+    .select('*')
+    .ilike('username', `%${query}%`)
+    .limit(limit)
+}
+
+export async function sendPartyInvite(fromId: string, toId: string) {
+  return supabase
+    .from('party_invites')
+    .insert({ from_player_id: fromId, to_player_id: toId })
+}
+
+export async function respondToInvite(inviteId: string, status: 'accepted' | 'declined') {
+  return supabase
+    .from('party_invites')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', inviteId)
+}
+
+export async function fetchPartyInvites(playerId: string) {
+  return supabase
+    .from('party_invites')
+    .select(`
+      id, status, created_at,
+      from_player_id, to_player_id
+    `)
+    .or(`from_player_id.eq.${playerId},to_player_id.eq.${playerId}`)
+    .order('created_at', { ascending: false })
+}
+
+export async function fetchPartyMembers(playerId: string): Promise<PublicPlayer[]> {
+  const { data: invites } = await supabase
+    .from('party_invites')
+    .select('from_player_id, to_player_id')
+    .eq('status', 'accepted')
+    .or(`from_player_id.eq.${playerId},to_player_id.eq.${playerId}`)
+
+  if (!invites || invites.length === 0) return []
+
+  const memberIds = invites.map(i =>
+    i.from_player_id === playerId ? i.to_player_id : i.from_player_id
+  )
+
+  const { data } = await supabase
+    .from('player_public')
+    .select('*')
+    .in('id', memberIds)
+
+  return (data ?? []) as PublicPlayer[]
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard
+// ---------------------------------------------------------------------------
+
+export type LeaderboardCategory = 'distance' | 'stat_power' | 'gates'
+
+export async function fetchLeaderboard(category: LeaderboardCategory, limit = 50) {
+  if (category === 'gates') {
+    // Gates cleared count lives in cleared_dungeon_ids array length — use players table
+    return supabase
+      .from('players')
+      .select('id, username, rank, primary_element, total_distance_km, cleared_dungeon_ids')
+      .order('total_distance_km', { ascending: false })
+      .limit(limit)
+  }
+
+  const orderCol = category === 'distance' ? 'total_distance_km' : 'total_stat_power'
+  return supabase
+    .from('player_public')
+    .select('*')
+    .order(orderCol, { ascending: false })
+    .limit(limit)
+}
+
+// ---------------------------------------------------------------------------
+// Co-op gate
+// ---------------------------------------------------------------------------
+
+export async function resolveCoOpGate(gateId: string, participantIds: string[]) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not authenticated')
+
+  const { data, error } = await supabase.functions.invoke('resolve-gate', {
+    body: { gate_id: gateId, participant_ids: participantIds },
+  })
+
+  if (error) throw new Error(error.message)
+  return data as import('@/types').CoOpGateResponse
 }

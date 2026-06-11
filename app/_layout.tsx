@@ -2,9 +2,10 @@
 // Aeternum — Root Layout
 // =============================================================================
 
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useRef } from 'react'
 import { View, StyleSheet, Alert, Platform } from 'react-native'
 import { Tabs } from 'expo-router'
+import { Ionicons } from '@expo/vector-icons'
 import { useFonts } from 'expo-font'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
@@ -28,9 +29,11 @@ export default function RootLayout() {
     setUserId, setPlayer, player, reset,
     characterSetupDone, setCharacterSetupDone,
     healthPermissionAsked, setHealthPermissionAsked,
+    setSyncState, setSyncError, applyRunResult,
   } = useStore()
 
   const [authResolved, setAuthResolved] = useState(false)
+  const syncFired = useRef(false)
 
   // Restore session on boot — AsyncStorage keeps the JWT between app restarts
   useEffect(() => {
@@ -73,6 +76,30 @@ export default function RootLayout() {
     requestHealth()
   }, [player, characterSetupDone, healthPermissionAsked, setHealthPermissionAsked])
 
+  // Auto-sync on app open once player is ready — fires once per session
+  useEffect(() => {
+    if (!player || !characterSetupDone || syncFired.current) return
+    syncFired.current = true
+
+    async function autoSync() {
+      setSyncState('reading')
+      setSyncError(null)
+      try {
+        const { syncRun } = await import('@/lib/runSync')
+        setSyncState('uploading')
+        const result = await syncRun(player!.id)
+        applyRunResult(result)
+      } catch (err) {
+        // Silently set error state — no crash, no alert
+        setSyncState('error')
+        const msg = err instanceof Error ? err.message : 'Sync unavailable.'
+        setSyncError(msg)
+      }
+    }
+
+    autoSync()
+  }, [player, characterSetupDone, setSyncState, setSyncError, applyRunResult])
+
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded || fontError) await SplashScreen.hideAsync()
   }, [fontsLoaded, fontError])
@@ -112,17 +139,19 @@ export default function RootLayout() {
             },
           }}
         >
-          <Tabs.Screen name="index" options={{ title: 'Command' }} />
-          <Tabs.Screen name="sync" options={{ title: 'Sync' }} />
-          <Tabs.Screen name="quests" options={{ title: 'Quests' }} />
-          <Tabs.Screen name="dungeons" options={{ title: 'Gates' }} />
-          <Tabs.Screen name="identity" options={{ title: 'Identity' }} />
-          <Tabs.Screen name="progress" options={{ title: 'Progress' }} />
-          {/* Hidden legacy routes */}
-          <Tabs.Screen name="rewards" options={{ href: null }} />
-          <Tabs.Screen name="party" options={{ href: null }} />
-          {/* Suppress character-setup from tabs — shown as overlay */}
-          <Tabs.Screen name="character-setup" options={{ href: null }} />
+          <Tabs.Screen name="index"       options={{ title: 'Command',     tabBarIcon: ({ color, size }) => <Ionicons name="terminal-outline"   size={size} color={color} /> }} />
+          <Tabs.Screen name="sync"        options={{ href: null }} />
+          <Tabs.Screen name="quests"      options={{ title: 'Quests',      tabBarIcon: ({ color, size }) => <Ionicons name="list-outline"        size={size} color={color} /> }} />
+          <Tabs.Screen name="dungeons"    options={{ title: 'Gates',       tabBarIcon: ({ color, size }) => <Ionicons name="shield-outline"      size={size} color={color} /> }} />
+          <Tabs.Screen name="party"       options={{ title: 'Party',       tabBarIcon: ({ color, size }) => <Ionicons name="people-outline"      size={size} color={color} /> }} />
+          <Tabs.Screen name="leaderboard" options={{ title: 'Ranks',       tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline"      size={size} color={color} /> }} />
+          <Tabs.Screen name="inventory"   options={{ title: 'Bag',         tabBarIcon: ({ color, size }) => <Ionicons name="bag-outline"         size={size} color={color} /> }} />
+          <Tabs.Screen name="smithy"      options={{ title: 'Smithy',      tabBarIcon: ({ color, size }) => <Ionicons name="hammer-outline"      size={size} color={color} /> }} />
+          <Tabs.Screen name="identity"    options={{ title: 'Identity',    tabBarIcon: ({ color, size }) => <Ionicons name="person-outline"      size={size} color={color} /> }} />
+          <Tabs.Screen name="progress"    options={{ title: 'Progress',    tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline"   size={size} color={color} /> }} />
+          {/* Hidden routes */}
+          <Tabs.Screen name="rewards"          options={{ href: null }} />
+          <Tabs.Screen name="character-setup"  options={{ href: null }} />
         </Tabs>
 
         {/* Entry gate — unauthenticated users */}

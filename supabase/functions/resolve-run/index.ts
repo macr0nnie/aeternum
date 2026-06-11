@@ -1,15 +1,8 @@
 // =============================================================================
 // Aeternum — resolve-run Edge Function
 // =============================================================================
-// This function is the authoritative game server. The client sends raw sensor
-// data; this function decides validity, rewards, and stat gains.
-//
-// Why server-authoritative: the client cannot be trusted to determine what loot
-// it earns. All reward logic lives here so cheating requires compromising the
-// server, not the app binary.
-//
-// Why Supabase Edge Functions: zero cold-start overhead for this use case,
-// direct access to the database via service_role, and TypeScript throughout.
+// Server-authoritative run resolution. Client sends raw sensor data;
+// this function decides validity, rewards, and stat gains.
 // =============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -62,6 +55,23 @@ interface RunResponse {
 }
 
 // ---------------------------------------------------------------------------
+// CORS headers — applied to every response, including errors
+// ---------------------------------------------------------------------------
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, content-type',
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...CORS },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
@@ -71,6 +81,8 @@ const RATIO_LOWER_BOUND = 0.6
 const RATIO_UPPER_BOUND = 2.0
 const MIN_PACE_SECONDS_PER_KM = 180    // 3 min/km — sprint world record territory
 const MAX_PACE_SECONDS_PER_KM = 1800   // 30 min/km — near-stationary
+// Max allowed clock drift between duration_seconds and actual end-start delta
+const MAX_DURATION_DRIFT_SECONDS = 60
 
 const RANK_THRESHOLDS: Record<string, number> = {
   D: 50,
@@ -86,7 +98,28 @@ const RANK_THRESHOLDS: Record<string, number> = {
 // ---------------------------------------------------------------------------
 
 function validateRun(req: RunRequest): ValidationResult {
-  const { distance_km, duration_seconds, steps } = req
+  const { distance_km, duration_seconds, steps, started_at, ended_at } = req
+
+  // Cross-check: duration_seconds vs actual wall-clock delta
+  const wallDeltaSeconds = Math.round(
+    (new Date(ended_at).getTime() - new Date(started_at).getTime()) / 1000,
+  )
+  if (Math.abs(wallDeltaSeconds - duration_seconds) > MAX_DURATION_DRIFT_SECONDS) {
+    return {
+      valid: false,
+      confidence: 0,
+      flagReason: `Duration mismatch: reported ${duration_seconds}s but timestamps imply ${wallDeltaSeconds}s`,
+    }
+  }
+
+  // started_at must be in the past
+  if (new Date(started_at).getTime() > Date.now()) {
+    return {
+      valid: false,
+      confidence: 0,
+      flagReason: 'Run start time is in the future',
+    }
+  }
 
   const paceSecondsPerKm = duration_seconds / distance_km
   const stepsPerKm = steps / distance_km
@@ -118,11 +151,9 @@ function validateRun(req: RunRequest): ValidationResult {
   }
 
   if (ratio < RATIO_LOWER_BOUND || ratio > RATIO_UPPER_BOUND) {
-    // Suspicious but not a hard reject — reduce confidence
     const confidence = ratio < RATIO_LOWER_BOUND
       ? ratio / RATIO_LOWER_BOUND
       : RATIO_UPPER_BOUND / ratio
-
     return {
       valid: true,
       confidence: Math.min(confidence, 0.6),
@@ -130,10 +161,8 @@ function validateRun(req: RunRequest): ValidationResult {
     }
   }
 
-  // Linear confidence from ratio closeness to 1.0 (perfect ratio)
   const ratioDeviation = Math.abs(ratio - 1.0)
   const confidence = Math.max(0.7, 1.0 - ratioDeviation * 0.5)
-
   return { valid: true, confidence }
 }
 
@@ -141,10 +170,7 @@ function validateRun(req: RunRequest): ValidationResult {
 // Reward generation
 // ---------------------------------------------------------------------------
 
-type RewardTier = {
-  rarity: Reward['rarity']
-  encounterLabel: string
-}
+type RewardTier = { rarity: Reward['rarity']; encounterLabel: string }
 
 function getRewardTier(distance_km: number): RewardTier {
   if (distance_km >= 15) return { rarity: 'legendary', encounterLabel: 'Rank S Raid' }
@@ -154,8 +180,6 @@ function getRewardTier(distance_km: number): RewardTier {
   return { rarity: 'common', encounterLabel: 'Minor Encounter' }
 }
 
-// Deterministic reward pool seeded by session data — not random each call.
-// This prevents reward re-rolling by re-submitting the same run.
 function generateRewards(
   distance_km: number,
   player_id: string,
@@ -163,17 +187,14 @@ function generateRewards(
   confidence: number,
 ): Reward[] {
   const { rarity } = getRewardTier(distance_km)
-
-  // Seed from player + time so re-submitting the same data produces the same rewards
   const seed = parseInt(player_id.replace(/-/g, '').slice(0, 8), 16)
     + new Date(started_at).getTime()
-
   const rewardCount = Math.floor((seed % 3) + 1 + Math.floor(distance_km / 5))
 
   const REWARD_POOLS: Record<Reward['rarity'], Omit<Reward, 'id'>[]> = {
     common: [
       { name: 'Iron Shard', rarity: 'common', type: 'material' },
-      { name: 'Runner\'s Tonic', rarity: 'common', type: 'consumable' },
+      { name: "Runner's Tonic", rarity: 'common', type: 'consumable' },
       { name: 'Trail Dust', rarity: 'common', type: 'material' },
       { name: 'Worn Bracer', rarity: 'common', type: 'gear' },
     ],
@@ -190,7 +211,7 @@ function generateRewards(
       { name: 'Forge Core', rarity: 'rare', type: 'material' },
     ],
     legendary: [
-      { name: 'Sovereign\'s Sigil', rarity: 'legendary', type: 'gear' },
+      { name: "Sovereign's Sigil", rarity: 'legendary', type: 'gear' },
       { name: 'Raid Trophy', rarity: 'legendary', type: 'consumable' },
       { name: 'Elder Scroll', rarity: 'legendary', type: 'scroll' },
     ],
@@ -198,22 +219,15 @@ function generateRewards(
 
   const pool = REWARD_POOLS[rarity]
   const rewards: Reward[] = []
-
   for (let i = 0; i < Math.min(rewardCount, pool.length); i++) {
     const item = pool[(seed + i) % pool.length]
     if (item) {
-      // confidence below 0.6 downgrades rarity one step
       const effectiveRarity = confidence < 0.6 && rarity !== 'common'
         ? downgradeRarity(rarity)
         : rarity
-      rewards.push({
-        id: `${started_at}-${i}`,
-        ...item,
-        rarity: effectiveRarity,
-      })
+      rewards.push({ id: `${started_at}-${i}`, ...item, rarity: effectiveRarity })
     }
   }
-
   return rewards
 }
 
@@ -231,16 +245,9 @@ function resolveStatGains(req: RunRequest): Partial<Stats> {
   const gains: Partial<Stats> = {}
   const paceSecondsPerKm = req.duration_seconds / req.distance_km
 
-  // END — long run threshold
   if (req.distance_km >= 5) gains.END = Math.floor(req.distance_km / 5)
-
-  // SPD — sprint session (sub-5 min/km pace)
   if (paceSecondsPerKm < 300) gains.SPD = 2
-
-  // ATK — boss encounter threshold (Rank B+)
   if (req.distance_km >= 5) gains.ATK = 1
-
-  // LCK — any completed run
   gains.LCK = 1
 
   return gains
@@ -264,33 +271,34 @@ function resolveRank(totalDistanceKm: number): string {
 // Title generator
 // ---------------------------------------------------------------------------
 
-type RunPattern = 'sprint' | 'endurance' | 'consistent' | 'rare' | 'balanced'
+type RunPattern = 'sprint' | 'endurance' | 'rare' | 'balanced'
 
 const TITLE_MAP: Record<string, Record<RunPattern, string>> = {
-  fire:    { sprint: 'Flashfire Striker', endurance: 'Ember Sovereign', consistent: 'Pyrewalker', rare: 'Cinderborn', balanced: 'Flamecaller' },
-  water:   { sprint: 'Tidal Dasher', endurance: 'Deepcurrent', consistent: 'Tidecaller', rare: 'Abyssal Envoy', balanced: 'Wavebreaker' },
-  nature:  { sprint: 'Thornwind Runner', endurance: 'Rootwarden', consistent: 'Greenpath Keeper', rare: 'Ancient Bloom', balanced: 'Wildstrider' },
-  arcane:  { sprint: 'Riftcaster', endurance: 'Eternal Scholar', consistent: 'Spellmark', rare: 'Runic Arcanist', balanced: 'Veilwalker' },
-  shadow:  { sprint: 'Shadowblitz', endurance: 'Void Sovereign', consistent: 'Duskbound', rare: 'Umbral Spectre', balanced: 'Nightweaver' },
-  frost:   { sprint: 'Blizzard Sprinter', endurance: 'Glacial Sentinel', consistent: 'Frostwalker', rare: 'Absolute Zero', balanced: 'Cryomancer' },
-  earth:   { sprint: 'Rockslide Charger', endurance: 'Ironclad Warden', consistent: 'Terraclaimer', rare: 'Tectonic Breaker', balanced: 'Stoneguard' },
-  harvest: { sprint: 'Grain Reaper', endurance: 'Field Sovereign', consistent: 'Harvest Keeper', rare: 'Bountiful Sage', balanced: 'Plenty Walker' },
-  forge:   { sprint: 'Molten Racer', endurance: 'Ironworks Titan', consistent: 'Tempering Path', rare: 'Grand Artificer', balanced: 'Smithbound' },
-  mending: { sprint: 'Swift Mender', endurance: 'Undying Healer', consistent: 'Restoration Path', rare: 'Sacred Restorer', balanced: 'Lifebinder' },
+  fire:    { sprint: 'Flashfire Striker', endurance: 'Ember Sovereign', rare: 'Cinderborn', balanced: 'Flamecaller' },
+  water:   { sprint: 'Tidal Dasher', endurance: 'Deepcurrent', rare: 'Abyssal Envoy', balanced: 'Wavebreaker' },
+  nature:  { sprint: 'Thornwind Runner', endurance: 'Rootwarden', rare: 'Ancient Bloom', balanced: 'Wildstrider' },
+  arcane:  { sprint: 'Riftcaster', endurance: 'Eternal Scholar', rare: 'Runic Arcanist', balanced: 'Veilwalker' },
+  shadow:  { sprint: 'Shadowblitz', endurance: 'Void Sovereign', rare: 'Umbral Spectre', balanced: 'Nightweaver' },
+  frost:   { sprint: 'Blizzard Sprinter', endurance: 'Glacial Sentinel', rare: 'Absolute Zero', balanced: 'Cryomancer' },
+  earth:   { sprint: 'Rockslide Charger', endurance: 'Ironclad Warden', rare: 'Tectonic Breaker', balanced: 'Stoneguard' },
+  harvest: { sprint: 'Grain Reaper', endurance: 'Field Sovereign', rare: 'Bountiful Sage', balanced: 'Plenty Walker' },
+  forge:   { sprint: 'Molten Racer', endurance: 'Ironworks Titan', rare: 'Grand Artificer', balanced: 'Smithbound' },
+  mending: { sprint: 'Swift Mender', endurance: 'Undying Healer', rare: 'Sacred Restorer', balanced: 'Lifebinder' },
 }
 
 function generateTitle(element: string | null, pattern: RunPattern): string {
-  if (!element) return 'Unnamed Runner'
+  if (!element) return 'Unawakened'
   const titles = TITLE_MAP[element.toLowerCase()]
-  if (!titles) return 'Unnamed Runner'
-  return titles[pattern] ?? 'Unnamed Runner'
+  if (!titles) return 'Unawakened'
+  return titles[pattern] ?? 'Unawakened'
 }
 
+// Fixed: rare (≥15km) checked before endurance (≥10km) so neither branch shadows the other
 function classifyRunPattern(req: RunRequest): RunPattern {
   const paceSecondsPerKm = req.duration_seconds / req.distance_km
   if (paceSecondsPerKm < 300) return 'sprint'
+  if (req.distance_km >= 15) return 'rare'       // ← must come before endurance check
   if (req.distance_km >= 10) return 'endurance'
-  if (req.distance_km >= 15) return 'rare'
   return 'balanced'
 }
 
@@ -300,31 +308,37 @@ function classifyRunPattern(req: RunRequest): RunPattern {
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST',
-        'Access-Control-Allow-Headers': 'authorization, content-type',
-      },
-    })
+    return new Response(null, { headers: CORS })
   }
 
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return json({ error: 'Method not allowed' }, 405)
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-
   if (!supabaseUrl || !serviceRoleKey) {
-    return new Response(JSON.stringify({ error: 'Server configuration error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return json({ error: 'Server configuration error' }, 500)
   }
+
+  // ---------------------------------------------------------------------------
+  // Auth: extract the caller's user ID from their JWT — never trust player_id
+  // from the request body. A forged body with another player's ID would
+  // otherwise let someone submit runs on their behalf.
+  // ---------------------------------------------------------------------------
+  const authHeader = req.headers.get('authorization') ?? ''
+  const jwt = authHeader.replace(/^Bearer\s+/i, '')
+  if (!jwt) return json({ error: 'Missing authorization header' }, 401)
+
+  // Use anon-key client to verify the JWT (service role would bypass RLS)
+  const anonKey = Deno.env.get('SUPABASE_ANON_KEY')
+  if (!anonKey) return json({ error: 'Server configuration error' }, 500)
+
+  const authClient = createClient(supabaseUrl, anonKey, {
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  })
+  const { data: { user }, error: authError } = await authClient.auth.getUser()
+  if (authError || !user) return json({ error: 'Unauthorized' }, 401)
 
   const db = createClient(supabaseUrl, serviceRoleKey)
 
@@ -332,27 +346,44 @@ Deno.serve(async (req: Request) => {
   try {
     body = await req.json() as RunRequest
   } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return json({ error: 'Invalid JSON' }, 400)
   }
 
-  const { player_id, mode, distance_km, duration_seconds, steps, avg_heart_rate, started_at, ended_at } = body
+  const { mode, distance_km, duration_seconds, steps, avg_heart_rate, started_at, ended_at } = body
 
-  if (!player_id || !distance_km || !duration_seconds || !steps || !started_at || !ended_at) {
-    return new Response(JSON.stringify({ error: 'Missing required fields' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    })
+  // Use the verified user ID, not the one from the body
+  const player_id = user.id
+
+  if (!distance_km || !duration_seconds || !steps || !started_at || !ended_at) {
+    return json({ error: 'Missing required fields' }, 400)
   }
 
-  // Validate the run
-  const validation = validateRun(body)
+  if (distance_km <= 0 || duration_seconds <= 0 || steps < 0) {
+    return json({ error: 'Invalid numeric fields' }, 400)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Duplicate run guard — same player + started_at = same run
+  // Prevents rewards from being claimed twice by resubmitting.
+  // ---------------------------------------------------------------------------
+  const { data: existing } = await db
+    .from('run_sessions')
+    .select('id')
+    .eq('player_id', player_id)
+    .eq('started_at', started_at)
+    .maybeSingle()
+
+  if (existing) {
+    return json({ error: 'This run has already been submitted' }, 409)
+  }
+
+  // Validate
+  const safeBody: RunRequest = { ...body, player_id }
+  const validation = validateRun(safeBody)
   const rewards = validation.valid
     ? generateRewards(distance_km, player_id, started_at, validation.confidence)
     : []
-  const statGains = validation.valid ? resolveStatGains(body) : {}
+  const statGains = validation.valid ? resolveStatGains(safeBody) : {}
 
   // Fetch current player
   const { data: player, error: playerError } = await db
@@ -362,10 +393,7 @@ Deno.serve(async (req: Request) => {
     .single()
 
   if (playerError || !player) {
-    return new Response(JSON.stringify({ error: 'Player not found' }), {
-      status: 404,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return json({ error: 'Player not found' }, 404)
   }
 
   // Insert run session
@@ -389,13 +417,10 @@ Deno.serve(async (req: Request) => {
     .single()
 
   if (insertError || !runSession) {
-    return new Response(JSON.stringify({ error: 'Failed to store run session' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    })
+    return json({ error: 'Failed to store run session' }, 500)
   }
 
-  // Update player stats, total distance, rank, and title
+  // Update player stats, distance, rank, and title
   if (validation.valid) {
     const currentStats = player.stats as Stats
     const newStats: Stats = { ...currentStats }
@@ -406,10 +431,9 @@ Deno.serve(async (req: Request) => {
 
     const newTotalDistance = (player.total_distance_km as number) + distance_km
     const newRank = resolveRank(newTotalDistance)
-
-    const pattern = classifyRunPattern(body)
+    const pattern = classifyRunPattern(safeBody)
     const newTitle = generateTitle(player.primary_element as string | null, pattern)
-    const titleChanged = newTitle !== player.title && newTitle !== 'Unnamed Runner'
+    const titleChanged = newTitle !== player.title && newTitle !== 'Unawakened'
     const newChronicle = titleChanged
       ? [...(player.title_chronicle as string[]), player.title]
       : player.title_chronicle
@@ -434,8 +458,5 @@ Deno.serve(async (req: Request) => {
     ...(validation.flagReason ? { flag_reason: validation.flagReason } : {}),
   }
 
-  return new Response(JSON.stringify(response), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-  })
+  return json(response)
 })

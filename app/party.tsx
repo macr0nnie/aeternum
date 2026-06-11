@@ -1,264 +1,256 @@
 // =============================================================================
-// Aeternum — Party + Matchmaking Screen
+// Aeternum — Party Screen
 // =============================================================================
-// Phase 1 async party system. Players form a party before running; all members
-// complete their runs independently; the server resolves rewards when the last
-// member syncs.
-//
-// This screen shows:
-//   - Current party composition + member run status
-//   - Dungeon tier requirements
-//   - Synergy bonuses active for the current party
-//   - Placeholder for party creation / join (requires matchmaking backend)
-// =============================================================================
+import React, { useState, useEffect, useCallback } from 'react'
+import {
+  View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet,
+  ActivityIndicator, RefreshControl,
+} from 'react-native'
+import { useStore, selectPlayer, selectPartyMembers, selectPartyInvites } from '@/store/useStore'
+import { SystemWindow, CornerPanel, SectionHeader, DungeonRankBadge } from '@/components/UI'
+import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING, elementAccent } from '@/theme/tokens'
+import {
+  searchPlayers, sendPartyInvite, respondToInvite,
+  fetchPartyMembers, fetchPartyInvites,
+  type PublicPlayer,
+} from '@/lib/supabase'
+import type { Element } from '@/types'
+import type { PartyInvite } from '@/store/useStore'
 
-import React from 'react'
-import { View, ScrollView, StyleSheet } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { useStore, selectPlayer } from '@/store/useStore'
-import { Panel, Heading, Label, Button, RankBadge, Spacer, Divider } from '@/components/UI'
-import { COLORS, SPACING, elementAccent } from '@/theme/tokens'
-import { DUNGEON_TIERS, ELEMENT_LABELS, type Element, type DungeonTier } from '@/types'
-
-// ---------------------------------------------------------------------------
-// Synergy definitions
-// ---------------------------------------------------------------------------
-
-interface Synergy {
-  label: string
-  description: string
-  elements?: Element[]
-  condition?: string
-  bonus: string
-}
-
-const SYNERGIES: Synergy[] = [
-  {
-    label: 'Arcane + Water',
-    description: 'Arcane and Water elements in the same party',
-    elements: ['arcane', 'water'],
-    bonus: '+15% spell damage',
-  },
-  {
-    label: 'Healer Present',
-    description: 'A Mending element player is in the party',
-    elements: ['mending'],
-    bonus: '+20% HP regen',
-  },
-  {
-    label: 'Full Party',
-    description: 'All 4 party slots filled',
-    condition: '4 members',
-    bonus: '+10% all rewards',
-  },
-]
-
-export default function PartyScreen() {
-  const player = useStore(selectPlayer)
-
-  const element = (player?.primary_element as Element | null) ?? null
-  const palette = elementAccent(element)
-
+const MemberCard: React.FC<{ member: PublicPlayer }> = ({ member }) => {
+  const palette = elementAccent(member.primary_element as Element | null)
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-
-        <Heading size="xl" element={element}>Party Hub</Heading>
-        <Spacer size="xs" />
-        <Label variant="secondary">
-          Form a party before your run. Members complete runs independently.
-        </Label>
-
-        <Spacer size="lg" />
-
-        {/* Current party */}
-        <Label variant="tertiary">Current Party</Label>
-        <Spacer size="sm" />
-        <Panel element={element} elevated padding="md">
-          {/* Solo placeholder — real matchmaking would populate from DB */}
-          <View style={styles.memberRow}>
-            <View style={styles.memberInfo}>
-              {player && <RankBadge rank={player.rank} size="sm" />}
-              <View>
-                <Label variant="primary" size="md">{player?.username ?? 'You'}</Label>
-                {element && (
-                  <Label variant="secondary" size="xs">{ELEMENT_LABELS[element]}</Label>
-                )}
-              </View>
-            </View>
-            <View style={[styles.statusDot, { backgroundColor: COLORS.success }]} />
-          </View>
-
-          <Spacer size="sm" />
-
-          {/* Empty slots */}
-          {[2, 3, 4].map((slot) => (
-            <View key={slot} style={[styles.memberRow, styles.emptySlot]}>
-              <Label variant="tertiary">{`Open Slot ${slot}`}</Label>
-              <Label variant="tertiary" size="xs">Waiting</Label>
-            </View>
-          ))}
-
-          <Spacer size="md" />
-          <Button
-            label="Invite Player"
-            element={element}
-            variant="ghost"
-            onPress={() => undefined}
-            fullWidth
-          />
-        </Panel>
-
-        <Spacer size="lg" />
-        <Divider element={element} />
-
-        {/* Dungeon tiers */}
-        <Label variant="tertiary">Dungeon Tiers</Label>
-        <Spacer size="sm" />
-        {DUNGEON_TIERS.map((tier) => (
-          <DungeonTierRow key={tier.rank} tier={tier} element={element} />
-        ))}
-
-        <Spacer size="lg" />
-        <Divider element={element} />
-
-        {/* Synergy bonuses */}
-        <Label variant="tertiary">Party Synergies</Label>
-        <Spacer size="sm" />
-        {SYNERGIES.map((synergy) => (
-          <SynergyRow key={synergy.label} synergy={synergy} />
-        ))}
-
-        <Spacer size="lg" />
-        <Divider element={element} />
-
-        {/* How async parties work */}
-        <Panel variant="transparent" padding="sm">
-          <Label variant="tertiary">How Async Parties Work</Label>
-          <Spacer size="sm" />
-          <Label variant="secondary">
-            All party members run independently on their own schedule.
-            Once the last member syncs their run, the server resolves
-            rewards for everyone simultaneously.
-          </Label>
-          <Spacer size="sm" />
-          <Label variant="secondary">
-            Rank A dungeons require 2–4 players. Rank S raids require
-            5–8 players. All members must hit the required distance.
-          </Label>
-        </Panel>
-
-        <Spacer size="xl" />
-      </ScrollView>
-    </SafeAreaView>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Dungeon tier row
-// ---------------------------------------------------------------------------
-
-function DungeonTierRow({ tier, element }: { tier: DungeonTier; element: Element | null }) {
-  const palette = elementAccent(element)
-
-  return (
-    <View style={[styles.dungeonRow, { borderColor: COLORS.borderMid }]}>
-      <View style={[styles.dungeonRankStripe, { backgroundColor: palette.mid }]}>
-        <Label variant="primary" size="xs">{tier.rank}</Label>
-      </View>
-      <View style={styles.dungeonContent}>
-        <Label variant="primary" size="md">{tier.label}</Label>
-        <View style={styles.dungeonMeta}>
-          <Label variant="tertiary" size="xs">{`${tier.minDistanceKm} km min`}</Label>
-          <Label variant="tertiary" size="xs">
-            {tier.minPlayers === tier.maxPlayers
-              ? `${tier.minPlayers} players`
-              : `${tier.minPlayers}–${tier.maxPlayers} players`}
-          </Label>
-          <Label variant="rarity" rarity={tier.rewardRarity} size="xs">{tier.rewardRarity}</Label>
+    <View style={[cardStyles.card, { borderLeftColor: palette.base }]}>
+      <View style={cardStyles.row}>
+        <DungeonRankBadge rank={member.rank as any} size="sm" />
+        <View style={cardStyles.info}>
+          <Text style={cardStyles.name}>{member.username}</Text>
+          <Text style={cardStyles.sub}>
+            {member.primary_element
+              ? member.primary_element.charAt(0).toUpperCase() + member.primary_element.slice(1)
+              : 'Unawakened'}{' · '}{member.total_distance_km.toFixed(1)} km{' · '}PWR {member.total_stat_power}
+          </Text>
         </View>
       </View>
     </View>
   )
 }
 
-// ---------------------------------------------------------------------------
-// Synergy row
-// ---------------------------------------------------------------------------
+const cardStyles = StyleSheet.create({
+  card: {
+    backgroundColor: COLORS.surface, borderWidth: BORDER.thin, borderColor: COLORS.borderMid,
+    borderLeftWidth: 3, borderRadius: RADIUS.slight, padding: SPACING.sm, marginBottom: SPACING.xs,
+  },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  info: { flex: 1, marginLeft: SPACING.sm },
+  name: { fontFamily: FONTS.heading, fontSize: FONT_SIZES.sm, color: COLORS.textPrimary },
+  sub: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, marginTop: 2 },
+})
 
-function SynergyRow({ synergy }: { synergy: Synergy }) {
+interface InviteRowProps {
+  invite: PartyInvite; myId: string
+  onAccept: (id: string) => void; onDecline: (id: string) => void
+}
+const InviteRow: React.FC<InviteRowProps> = ({ invite, myId, onAccept, onDecline }) => {
+  const isIncoming = invite.to_player_id === myId
   return (
-    <View style={styles.synergyRow}>
-      <View style={styles.flex1}>
-        <Label variant="primary" size="sm">{synergy.label}</Label>
-        <Label variant="tertiary" size="xs">{synergy.description}</Label>
+    <View style={invStyles.row}>
+      <View style={{ flex: 1 }}>
+        <Text style={invStyles.label}>{isIncoming ? '◆ INVITE FROM' : '◆ SENT TO'}</Text>
+        <Text style={invStyles.id} numberOfLines={1}>
+          {invite.from_username ?? (isIncoming ? invite.from_player_id : invite.to_player_id)}
+        </Text>
       </View>
-      <Label variant="rarity" rarity="uncommon" size="xs">{synergy.bonus}</Label>
+      {isIncoming && invite.status === 'pending' && (
+        <View style={invStyles.actions}>
+          <TouchableOpacity style={[invStyles.btn, invStyles.acceptBtn]} onPress={() => onAccept(invite.id)} activeOpacity={0.75}>
+            <Text style={invStyles.acceptTxt}>ACCEPT</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[invStyles.btn, invStyles.declineBtn]} onPress={() => onDecline(invite.id)} activeOpacity={0.75}>
+            <Text style={invStyles.declineTxt}>DECLINE</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {!isIncoming && (
+        <Text style={[invStyles.status, {
+          color: invite.status === 'accepted' ? COLORS.success : invite.status === 'declined' ? COLORS.error : COLORS.textTertiary,
+        }]}>{invite.status.toUpperCase()}</Text>
+      )}
+    </View>
+  )
+}
+const invStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.borderLow },
+  label: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide },
+  id: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
+  actions: { flexDirection: 'row', gap: SPACING.xs },
+  btn: { paddingHorizontal: SPACING.sm, paddingVertical: 4, borderRadius: RADIUS.xs, borderWidth: BORDER.thin },
+  acceptBtn: { borderColor: COLORS.success },
+  declineBtn: { borderColor: COLORS.error },
+  acceptTxt: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.success, letterSpacing: LETTER_SPACING.wide },
+  declineTxt: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.error, letterSpacing: LETTER_SPACING.wide },
+  status: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs },
+})
+
+interface SearchRowProps {
+  player: PublicPlayer; alreadyInvited: boolean; isPartyMember: boolean; onInvite: () => void
+}
+const SearchRow: React.FC<SearchRowProps> = ({ player, alreadyInvited, isPartyMember, onInvite }) => (
+  <View style={srStyles.row}>
+    <DungeonRankBadge rank={player.rank as any} size="sm" />
+    <View style={srStyles.info}>
+      <Text style={srStyles.name}>{player.username}</Text>
+      <Text style={srStyles.sub}>{player.total_distance_km.toFixed(1)} km · PWR {player.total_stat_power}</Text>
+    </View>
+    {isPartyMember ? (
+      <Text style={srStyles.inParty}>IN PARTY</Text>
+    ) : (
+      <TouchableOpacity style={[srStyles.inviteBtn, alreadyInvited && srStyles.invitedBtn]} onPress={onInvite} disabled={alreadyInvited} activeOpacity={0.75}>
+        <Text style={[srStyles.inviteTxt, alreadyInvited && { color: COLORS.textTertiary }]}>{alreadyInvited ? 'SENT' : 'INVITE'}</Text>
+      </TouchableOpacity>
+    )}
+  </View>
+)
+const srStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: SPACING.xs, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.borderLow },
+  info: { flex: 1, marginLeft: SPACING.sm },
+  name: { fontFamily: FONTS.heading, fontSize: FONT_SIZES.sm, color: COLORS.textPrimary },
+  sub: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, marginTop: 2 },
+  inviteBtn: { borderWidth: BORDER.thin, borderColor: COLORS.system, borderRadius: RADIUS.xs, paddingHorizontal: SPACING.sm, paddingVertical: 4 },
+  invitedBtn: { borderColor: COLORS.textTertiary },
+  inviteTxt: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.system, letterSpacing: LETTER_SPACING.wide },
+  inParty: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.success, letterSpacing: LETTER_SPACING.wide },
+})
+
+export default function PartyScreen() {
+  const player = useStore(selectPlayer)
+  const partyMembers = useStore(selectPartyMembers)
+  const partyInvites = useStore(selectPartyInvites)
+  const { setPartyMembers, setPartyInvites } = useStore()
+
+  const [query, setQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<PublicPlayer[]>([])
+  const [searching, setSearching] = useState(false)
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+  const [refreshing, setRefreshing] = useState(false)
+
+  const loadPartyData = useCallback(async () => {
+    if (!player) return
+    const [members, invites] = await Promise.all([fetchPartyMembers(player.id), fetchPartyInvites(player.id)])
+    setPartyMembers(members)
+    if (invites.data) setPartyInvites(invites.data as PartyInvite[])
+  }, [player, setPartyMembers, setPartyInvites])
+
+  useEffect(() => { loadPartyData() }, [loadPartyData])
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true); await loadPartyData(); setRefreshing(false)
+  }, [loadPartyData])
+
+  async function handleSearch(text: string) {
+    setQuery(text)
+    if (text.length < 2) { setSearchResults([]); return }
+    setSearching(true)
+    try {
+      const { data } = await searchPlayers(text)
+      setSearchResults(((data ?? []) as PublicPlayer[]).filter(p => p.id !== player?.id))
+    } catch { setSearchResults([]) } finally { setSearching(false) }
+  }
+
+  async function handleInvite(toId: string) {
+    if (!player) return
+    try { await sendPartyInvite(player.id, toId); setSentIds(prev => new Set([...prev, toId])) } catch { /* already sent */ }
+  }
+
+  async function handleAccept(inviteId: string) { await respondToInvite(inviteId, 'accepted'); await loadPartyData() }
+  async function handleDecline(inviteId: string) { await respondToInvite(inviteId, 'declined'); await loadPartyData() }
+
+  const memberIds = new Set(partyMembers.map(m => m.id))
+  const pendingInvites = partyInvites.filter(i => i.status === 'pending')
+  const incomingCount = pendingInvites.filter(i => i.to_player_id === player?.id).length
+
+  return (
+    <View style={styles.root}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.system} />}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>◆ PARTY ◆</Text>
+          <Text style={styles.sub}>
+            {partyMembers.length} MEMBER{partyMembers.length !== 1 ? 'S' : ''}
+            {incomingCount > 0 ? `  ·  ${incomingCount} INVITE${incomingCount > 1 ? 'S' : ''}` : ''}
+          </Text>
+        </View>
+
+        <SectionHeader title="FIND HUNTERS" />
+        <View style={styles.searchRow}>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search by username..."
+            placeholderTextColor={COLORS.textTertiary}
+            value={query}
+            onChangeText={handleSearch}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {searching && <ActivityIndicator size="small" color={COLORS.system} style={{ marginLeft: SPACING.sm }} />}
+        </View>
+
+        {searchResults.length > 0 && (
+          <CornerPanel>
+            {searchResults.map(p => (
+              <SearchRow
+                key={p.id}
+                player={p}
+                alreadyInvited={sentIds.has(p.id) || partyInvites.some(i => i.to_player_id === p.id && i.from_player_id === player?.id)}
+                isPartyMember={memberIds.has(p.id)}
+                onInvite={() => handleInvite(p.id)}
+              />
+            ))}
+          </CornerPanel>
+        )}
+
+        {pendingInvites.length > 0 && (
+          <>
+            <SectionHeader title={incomingCount > 0 ? `INVITES (${incomingCount} INCOMING)` : 'PENDING INVITES'} />
+            <CornerPanel>
+              {pendingInvites.map(inv => (
+                <InviteRow key={inv.id} invite={inv} myId={player?.id ?? ''} onAccept={handleAccept} onDecline={handleDecline} />
+              ))}
+            </CornerPanel>
+          </>
+        )}
+
+        <SectionHeader title="YOUR PARTY" />
+        {partyMembers.length === 0 ? (
+          <SystemWindow title="NO PARTY YET" variant="info">
+            <Text style={styles.emptyText}>
+              Search for hunters by username and send an invite. Once accepted, you can tackle C-rank+ gates together — pooling your stats for a shared advantage.
+            </Text>
+          </SystemWindow>
+        ) : (
+          partyMembers.map(m => <MemberCard key={m.id} member={m} />)
+        )}
+
+        <View style={{ height: SPACING.xl }} />
+      </ScrollView>
     </View>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.ground,
+  root: { flex: 1, backgroundColor: COLORS.ground },
+  scroll: { paddingHorizontal: SPACING.md, paddingTop: SPACING.xl },
+  header: { alignItems: 'center', marginBottom: SPACING.lg },
+  title: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xl, color: COLORS.system, letterSpacing: LETTER_SPACING.widest },
+  sub: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, marginTop: 4, letterSpacing: LETTER_SPACING.wide },
+  searchRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
+  searchInput: {
+    flex: 1, backgroundColor: COLORS.surface, borderWidth: BORDER.thin, borderColor: COLORS.systemBorder,
+    borderRadius: RADIUS.sm, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs,
+    fontFamily: FONTS.mono, fontSize: FONT_SIZES.sm, color: COLORS.textPrimary,
   },
-  scroll: {
-    padding: SPACING.md,
-  },
-  memberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLow,
-  },
-  memberInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: SPACING.sm,
-  },
-  emptySlot: {
-    opacity: 0.4,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 1,
-  },
-  dungeonRow: {
-    flexDirection: 'row',
-    borderWidth: 1,
-    borderRadius: 2,
-    marginBottom: SPACING.sm,
-    overflow: 'hidden',
-    backgroundColor: COLORS.surface,
-  },
-  dungeonRankStripe: {
-    width: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dungeonContent: {
-    flex: 1,
-    padding: SPACING.sm,
-    gap: 4,
-  },
-  dungeonMeta: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  synergyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.borderLow,
-    gap: SPACING.md,
-  },
-  flex1: {
-    flex: 1,
-  },
+  emptyText: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, lineHeight: 18 },
 })

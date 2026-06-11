@@ -1,7 +1,18 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { Player, RunSession, SyncRunResponse } from '@/types'
+import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse } from '@/types'
+import type { PublicPlayer } from '@/lib/supabase'
+
+export interface PartyInvite {
+  id: string
+  from_player_id: string
+  to_player_id: string
+  status: 'pending' | 'accepted' | 'declined'
+  created_at: string
+  from_username?: string
+}
+import { EMPTY_INVENTORY, EMPTY_LOADOUT } from '@/types'
 
 interface AeternumState {
   // Auth
@@ -20,16 +31,26 @@ interface AeternumState {
   syncState: 'idle' | 'reading' | 'uploading' | 'done' | 'error'
   syncError: string | null
 
-  // Latest resolved run (shown on rewards screen)
+  // Latest resolved run
   latestRunResult: SyncRunResponse | null
 
-  // Local game progress (persisted via AsyncStorage)
+  // Local game progress (persisted)
   completedQuestIds: string[]
   clearedDungeonIds: string[]
   characterSetupDone: boolean
   healthPermissionAsked: boolean
 
-  // Actions
+  // Gear & inventory (persisted)
+  inventory: PlayerInventory
+  equipped: GearLoadout
+  unlockedTalentIds: string[]
+
+  // Party (transient — refreshed on mount)
+  partyMembers: PublicPlayer[]
+  partyInvites: PartyInvite[]
+  lastCoOpResult: CoOpGateResponse | null
+
+  // Actions — auth/player
   setUserId: (id: string | null) => void
   setPlayer: (player: Player) => void
   setPlayerLoading: (loading: boolean) => void
@@ -44,6 +65,24 @@ interface AeternumState {
   clearDungeon: (dungeonId: string, statRewards: Partial<import('@/types').Stats>) => void
   setCharacterSetupDone: (done: boolean) => void
   setHealthPermissionAsked: (asked: boolean) => void
+
+  // Actions — party
+  setPartyMembers: (members: PublicPlayer[]) => void
+  setPartyInvites: (invites: PartyInvite[]) => void
+  setLastCoOpResult: (result: CoOpGateResponse | null) => void
+
+  // Actions — inventory
+  addGearToInventory: (item: GearItem) => void
+  addRelicToInventory: (relic: Relic) => void
+  addMaterial: (materialId: string, qty: number) => void
+  addConsumable: (consumableId: string, qty: number) => void
+  consumeConsumable: (consumableId: string, qty?: number) => void
+  equipGear: (item: GearItem) => void
+  unequipGear: (slot: keyof Omit<GearLoadout, 'relic'>) => void
+  equipRelic: (relic: Relic) => void
+  unequipRelic: () => void
+  unlockTalent: (talentId: string) => void
+
   reset: () => void
 }
 
@@ -57,6 +96,9 @@ const INITIAL_TRANSIENT = {
   syncState: 'idle' as const,
   syncError: null,
   latestRunResult: null,
+  partyMembers: [] as PublicPlayer[],
+  partyInvites: [] as PartyInvite[],
+  lastCoOpResult: null as CoOpGateResponse | null,
 }
 
 const INITIAL_PERSISTENT = {
@@ -64,6 +106,21 @@ const INITIAL_PERSISTENT = {
   clearedDungeonIds: [],
   characterSetupDone: false,
   healthPermissionAsked: false,
+  inventory: EMPTY_INVENTORY,
+  equipped: EMPTY_LOADOUT,
+  unlockedTalentIds: [],
+}
+
+function applyStatRewards(
+  player: Player,
+  statRewards: Partial<import('@/types').Stats>,
+): Player {
+  const updatedStats = { ...player.stats }
+  for (const [k, v] of Object.entries(statRewards)) {
+    const key = k as keyof typeof updatedStats
+    updatedStats[key] = (updatedStats[key] ?? 0) + (v as number)
+  }
+  return { ...player, stats: updatedStats }
 }
 
 export const useStore = create<AeternumState>()(
@@ -85,13 +142,8 @@ export const useStore = create<AeternumState>()(
       applyRunResult: (result) => {
         const { player } = get()
         if (!player) return
-        const updatedStats = { ...player.stats }
-        for (const [key, gain] of Object.entries(result.stat_gains)) {
-          const k = key as keyof typeof updatedStats
-          updatedStats[k] = (updatedStats[k] ?? 0) + (gain as number)
-        }
         set({
-          player: { ...player, stats: updatedStats },
+          player: applyStatRewards(player, result.stat_gains as Partial<import('@/types').Stats>),
           latestRunResult: result,
           syncState: 'done',
           syncError: null,
@@ -101,37 +153,115 @@ export const useStore = create<AeternumState>()(
       completeQuest: (questId, statRewards) => {
         const { completedQuestIds, player } = get()
         if (completedQuestIds.includes(questId)) return
-        const newIds = [...completedQuestIds, questId]
-        let updatedPlayer = player
-        if (player && Object.keys(statRewards).length > 0) {
-          const updatedStats = { ...player.stats }
-          for (const [k, v] of Object.entries(statRewards)) {
-            const key = k as keyof typeof updatedStats
-            updatedStats[key] = (updatedStats[key] ?? 0) + (v as number)
-          }
-          updatedPlayer = { ...player, stats: updatedStats }
-        }
-        set({ completedQuestIds: newIds, player: updatedPlayer })
+        set({
+          completedQuestIds: [...completedQuestIds, questId],
+          player: player && Object.keys(statRewards).length > 0
+            ? applyStatRewards(player, statRewards)
+            : player,
+        })
       },
 
       clearDungeon: (dungeonId, statRewards) => {
         const { clearedDungeonIds, player } = get()
         if (clearedDungeonIds.includes(dungeonId)) return
-        const newIds = [...clearedDungeonIds, dungeonId]
-        let updatedPlayer = player
-        if (player && Object.keys(statRewards).length > 0) {
-          const updatedStats = { ...player.stats }
-          for (const [k, v] of Object.entries(statRewards)) {
-            const key = k as keyof typeof updatedStats
-            updatedStats[key] = (updatedStats[key] ?? 0) + (v as number)
-          }
-          updatedPlayer = { ...player, stats: updatedStats }
-        }
-        set({ clearedDungeonIds: newIds, player: updatedPlayer })
+        set({
+          clearedDungeonIds: [...clearedDungeonIds, dungeonId],
+          player: player && Object.keys(statRewards).length > 0
+            ? applyStatRewards(player, statRewards)
+            : player,
+        })
       },
 
       setCharacterSetupDone: (done) => set({ characterSetupDone: done }),
       setHealthPermissionAsked: (asked) => set({ healthPermissionAsked: asked }),
+
+      // Party
+      setPartyMembers: (members) => set({ partyMembers: members }),
+      setPartyInvites: (invites) => set({ partyInvites: invites }),
+      setLastCoOpResult: (result) => set({ lastCoOpResult: result }),
+
+      // Inventory mutations
+      addGearToInventory: (item) => {
+        const { inventory } = get()
+        const instanceId = `${item.id}_${Date.now()}`
+        set({ inventory: { ...inventory, gear: [...inventory.gear, { ...item, instanceId }] } })
+      },
+
+      addRelicToInventory: (relic) => {
+        const { inventory } = get()
+        if (inventory.relics.some(r => r.id === relic.id)) return
+        set({ inventory: { ...inventory, relics: [...inventory.relics, relic] } })
+      },
+
+      addMaterial: (materialId, qty) => {
+        const { inventory } = get()
+        const current = inventory.materials[materialId] ?? 0
+        const next = Math.max(0, current + qty)
+        const materials = { ...inventory.materials }
+        if (next === 0) delete materials[materialId]
+        else materials[materialId] = next
+        set({ inventory: { ...inventory, materials } })
+      },
+
+      addConsumable: (consumableId, qty) => {
+        const { inventory } = get()
+        const current = inventory.consumables[consumableId] ?? 0
+        set({ inventory: { ...inventory, consumables: { ...inventory.consumables, [consumableId]: current + qty } } })
+      },
+
+      consumeConsumable: (consumableId, qty = 1) => {
+        const { inventory } = get()
+        const current = inventory.consumables[consumableId] ?? 0
+        const next = Math.max(0, current - qty)
+        const consumables = { ...inventory.consumables }
+        if (next === 0) delete consumables[consumableId]
+        else consumables[consumableId] = next
+        set({ inventory: { ...inventory, consumables } })
+      },
+
+      equipGear: (item) => {
+        const { equipped, inventory } = get()
+        const slot = item.slot as keyof Omit<GearLoadout, 'relic'>
+        const prev = equipped[slot]
+        const newGear = prev
+          ? inventory.gear.filter(g => g.instanceId !== item.instanceId).concat(prev)
+          : inventory.gear.filter(g => g.instanceId !== item.instanceId)
+        set({ equipped: { ...equipped, [slot]: item }, inventory: { ...inventory, gear: newGear } })
+      },
+
+      unequipGear: (slot) => {
+        const { equipped, inventory } = get()
+        const item = equipped[slot]
+        if (!item) return
+        set({
+          equipped: { ...equipped, [slot]: null },
+          inventory: { ...inventory, gear: [...inventory.gear, item] },
+        })
+      },
+
+      equipRelic: (relic) => {
+        const { equipped, inventory } = get()
+        const prev = equipped.relic
+        const newRelics = prev
+          ? inventory.relics.filter(r => r.id !== relic.id).concat(prev)
+          : inventory.relics.filter(r => r.id !== relic.id)
+        set({ equipped: { ...equipped, relic }, inventory: { ...inventory, relics: newRelics } })
+      },
+
+      unequipRelic: () => {
+        const { equipped, inventory } = get()
+        if (!equipped.relic) return
+        set({
+          equipped: { ...equipped, relic: null },
+          inventory: { ...inventory, relics: [...inventory.relics, equipped.relic] },
+        })
+      },
+
+      unlockTalent: (talentId) => {
+        const { unlockedTalentIds } = get()
+        if (unlockedTalentIds.includes(talentId)) return
+        set({ unlockedTalentIds: [...unlockedTalentIds, talentId] })
+      },
 
       reset: () => set(INITIAL_TRANSIENT),
     }),
@@ -143,6 +273,9 @@ export const useStore = create<AeternumState>()(
         clearedDungeonIds: state.clearedDungeonIds,
         characterSetupDone: state.characterSetupDone,
         healthPermissionAsked: state.healthPermissionAsked,
+        inventory: state.inventory,
+        equipped: state.equipped,
+        unlockedTalentIds: state.unlockedTalentIds,
       }),
     },
   ),
@@ -162,3 +295,9 @@ export const selectCompletedQuestIds = (s: AeternumState) => s.completedQuestIds
 export const selectClearedDungeonIds = (s: AeternumState) => s.clearedDungeonIds
 export const selectCharacterSetupDone = (s: AeternumState) => s.characterSetupDone
 export const selectHealthPermissionAsked = (s: AeternumState) => s.healthPermissionAsked
+export const selectInventory = (s: AeternumState) => s.inventory
+export const selectEquipped = (s: AeternumState) => s.equipped
+export const selectUnlockedTalentIds = (s: AeternumState) => s.unlockedTalentIds
+export const selectPartyMembers = (s: AeternumState) => s.partyMembers
+export const selectPartyInvites = (s: AeternumState) => s.partyInvites
+export const selectLastCoOpResult = (s: AeternumState) => s.lastCoOpResult

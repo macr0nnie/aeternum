@@ -103,13 +103,13 @@ export const RANK_DISTANCE_THRESHOLDS: Record<Rank, number> = {
 // Rarity
 // ---------------------------------------------------------------------------
 
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary'
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary' | 'mythic'
 
 // ---------------------------------------------------------------------------
-// Rewards
+// Rewards (run drop — lightweight reference)
 // ---------------------------------------------------------------------------
 
-export type RewardType = 'gear' | 'scroll' | 'consumable' | 'material'
+export type RewardType = 'gear' | 'scroll' | 'consumable' | 'material' | 'core'
 
 export interface Reward {
   id: string
@@ -117,6 +117,138 @@ export interface Reward {
   rarity: Rarity
   type: RewardType
 }
+
+// ---------------------------------------------------------------------------
+// Gear system (4 equip slots)
+// ---------------------------------------------------------------------------
+
+export type GearSlot = 'weapon' | 'armor' | 'ring' | 'relic'
+
+export interface GearItem {
+  id: string
+  name: string
+  slot: GearSlot
+  rarity: Rarity
+  element: Element | null
+  statBonuses: Partial<Stats>
+  setTag?: string          // e.g. "Shadowwalker" — 2/4-piece bonus
+  requiredRank?: Rank
+  flavor: string
+  instanceId?: string      // unique per-drop instance so duplicates stack separately
+}
+
+export interface Relic {
+  id: string
+  name: string
+  rarity: Rarity
+  passiveEffect: string    // human-readable description
+  statBonus?: Partial<Stats>
+  triggerCondition?: string
+  dropSource: string
+  flavor: string
+}
+
+export interface GearLoadout {
+  weapon: GearItem | null
+  armor:  GearItem | null
+  ring:   GearItem | null
+  relic:  Relic | null
+}
+
+// ---------------------------------------------------------------------------
+// Materials + consumables (inventory items)
+// ---------------------------------------------------------------------------
+
+export interface MaterialItem {
+  id: string
+  name: string
+  rarity: Rarity
+  dropSource: string       // which dungeon / monster drops this
+  flavor: string
+}
+
+export type ConsumableEffect =
+  | { type: 'stat_multiplier'; statKey: StatKey; multiplier: number }
+  | { type: 'drop_bonus'; extraRolls: number }
+  | { type: 'defeat_shield' }        // negate stat loss on defeat once
+  | { type: 'stat_flat'; statKey: StatKey; amount: number }
+
+export interface ConsumableItem {
+  id: string
+  name: string
+  rarity: Rarity
+  effect: ConsumableEffect
+  description: string
+  flavor: string
+}
+
+// ---------------------------------------------------------------------------
+// Crafting recipes
+// ---------------------------------------------------------------------------
+
+export type RecipeCategory = 'forge' | 'brew'
+
+export interface RecipeIngredient {
+  itemId: string           // MaterialItem or ConsumableItem id
+  quantity: number
+}
+
+export interface CraftRecipe {
+  id: string
+  category: RecipeCategory
+  name: string             // display name (output item name)
+  outputId: string         // GearItem.id or ConsumableItem.id
+  outputType: 'gear' | 'consumable'
+  outputQuantity: number
+  ingredients: RecipeIngredient[]
+  requiredRank?: Rank
+  flavor: string
+}
+
+// ---------------------------------------------------------------------------
+// Player inventory (stored as JSONB on players table)
+// ---------------------------------------------------------------------------
+
+export interface PlayerInventory {
+  gear:        GearItem[]
+  materials:   Record<string, number>   // materialId → quantity
+  consumables: Record<string, number>   // consumableId → quantity
+  relics:      Relic[]
+}
+
+export const EMPTY_INVENTORY: PlayerInventory = {
+  gear: [],
+  materials: {},
+  consumables: {},
+  relics: [],
+}
+
+export const EMPTY_LOADOUT: GearLoadout = {
+  weapon: null,
+  armor: null,
+  ring: null,
+  relic: null,
+}
+
+// ---------------------------------------------------------------------------
+// Hidden talents — passive abilities unlocked by meeting secret conditions
+// ---------------------------------------------------------------------------
+
+export interface HiddenTalent {
+  id: string
+  name: string
+  description: string
+  unlockCondition: HiddenTalentCondition
+  passiveEffect: string
+  statBonus?: Partial<Stats>
+  flavor: string
+}
+
+export type HiddenTalentCondition =
+  | { type: 'stats'; requirements: Partial<Stats> }
+  | { type: 'distance'; km: number }
+  | { type: 'dungeon_combo'; dungeonIds: string[] }
+  | { type: 'element_mastery'; element: Element; minStat: number }
 
 // ---------------------------------------------------------------------------
 // Run session
@@ -192,6 +324,26 @@ export interface SyncRunResponse {
   rewards: Reward[]
   stat_gains: Partial<Stats>
   flag_reason?: string
+}
+
+// ---------------------------------------------------------------------------
+// Co-op gate
+// ---------------------------------------------------------------------------
+
+export interface CoOpPlayerOutcome {
+  player_id: string
+  stat_gains: Partial<Stats>
+  won: boolean
+}
+
+export interface CoOpGateResponse {
+  session_id: string
+  gate_id: string
+  won: boolean
+  win_probability: number
+  pooled_stats: Stats
+  participant_count: number
+  outcomes: CoOpPlayerOutcome[]
 }
 
 // ---------------------------------------------------------------------------

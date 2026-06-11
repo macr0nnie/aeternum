@@ -1,24 +1,21 @@
 // =============================================================================
-// Aeternum — Command Hub (main screen)
-// =============================================================================
-// The player's home base. Shows rank, title, active elements, total distance,
-// and quick-action buttons for sync and party.
-//
-// This is the first screen the player sees after opening the app post-run.
+// Aeternum — Command Hub
 // =============================================================================
 
 import React from 'react'
-import { View, ScrollView, StyleSheet } from 'react-native'
-import { router } from 'expo-router'
+import { View, Text, ScrollView, StyleSheet } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useStore, selectPlayer } from '@/store/useStore'
-import { Panel, Heading, Label, Button, RankBadge, Divider, Spacer } from '@/components/UI'
-import { COLORS, SPACING, elementAccent } from '@/theme/tokens'
+import { useStore, selectPlayer, selectSyncState, selectLatestRunResult } from '@/store/useStore'
+import { Panel, Heading, Label, RankBadge, Divider, Spacer, SystemWindow } from '@/components/UI'
+import { COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, elementAccent, rarityColor } from '@/theme/tokens'
 import { ELEMENT_LABELS, DISTANCE_TIERS } from '@/types'
 import type { Element } from '@/types'
 
 export default function CommandHub() {
   const player = useStore(selectPlayer)
+  const syncState = useStore(selectSyncState)
+  const latestResult = useStore(selectLatestRunResult)
+  const syncError = useStore(s => s.syncError)
 
   if (!player) {
     return (
@@ -33,15 +30,16 @@ export default function CommandHub() {
   const element = player.primary_element as Element | null
   const palette = elementAccent(element)
 
-  // Find next distance tier
-  const currentTier = DISTANCE_TIERS.findIndex(
-    (t) => player.total_distance_km >= t.minKm && player.total_distance_km < t.maxKm,
+  const currentTierIdx = DISTANCE_TIERS.findIndex(
+    t => player.total_distance_km >= t.minKm && player.total_distance_km < t.maxKm,
   )
-  const nextTier = DISTANCE_TIERS[currentTier + 1]
+  const nextTier = DISTANCE_TIERS[currentTierIdx + 1]
   const tierProgress = nextTier
-    ? (player.total_distance_km - (DISTANCE_TIERS[currentTier]?.minKm ?? 0)) /
-      (nextTier.minKm - (DISTANCE_TIERS[currentTier]?.minKm ?? 0))
+    ? (player.total_distance_km - (DISTANCE_TIERS[currentTierIdx]?.minKm ?? 0)) /
+      (nextTier.minKm - (DISTANCE_TIERS[currentTierIdx]?.minKm ?? 0))
     : 1
+
+  const isActive = syncState === 'reading' || syncState === 'uploading'
 
   return (
     <SafeAreaView style={styles.container}>
@@ -92,9 +90,7 @@ export default function CommandHub() {
             <View style={styles.flex1}>
               <Label variant="tertiary">Total Distance</Label>
               <Spacer size="xs" />
-              <Heading size="xl" element={element}>
-                {`${player.total_distance_km.toFixed(1)} km`}
-              </Heading>
+              <Heading size="xl" element={element}>{`${player.total_distance_km.toFixed(1)} km`}</Heading>
             </View>
             <View style={styles.flex1}>
               <Label variant="tertiary">Next Threshold</Label>
@@ -109,18 +105,11 @@ export default function CommandHub() {
               )}
             </View>
           </View>
-
           {nextTier && (
             <>
               <Spacer size="sm" />
-              {/* Progress bar */}
               <View style={styles.progressTrack}>
-                <View
-                  style={[
-                    styles.progressFill,
-                    { width: `${Math.round(tierProgress * 100)}%`, backgroundColor: palette.base },
-                  ]}
-                />
+                <View style={[styles.progressFill, { width: `${Math.round(tierProgress * 100)}%`, backgroundColor: palette.base }]} />
               </View>
               <Spacer size="xs" />
               <Label variant="tertiary" size="xs">
@@ -132,33 +121,67 @@ export default function CommandHub() {
 
         <Spacer size="md" />
         <Divider element={element} />
+        <Spacer size="md" />
 
-        {/* Quick actions */}
-        <Heading size="sm" dim>Quick Actions</Heading>
-        <Spacer size="sm" />
+        {/* Run sync status */}
+        {isActive && (
+          <SystemWindow title={syncState === 'reading' ? 'READING HEALTH DATA' : 'RESOLVING RUN'} variant="info">
+            <Text style={styles.syncLine}>
+              {syncState === 'reading'
+                ? '> Fetching your last workout...'
+                : '> Server validating distance and pace...'}
+            </Text>
+            <View style={styles.dots}>
+              {[0, 1, 2].map(i => (
+                <View key={i} style={[styles.dot, { backgroundColor: COLORS.system }]} />
+              ))}
+            </View>
+          </SystemWindow>
+        )}
 
-        <Button
-          label="Sync Run"
-          element={element}
-          onPress={() => router.push('/sync')}
-          fullWidth
-        />
-        <Spacer size="sm" />
-        <Button
-          label="View Rewards"
-          element={element}
-          variant="ghost"
-          onPress={() => router.push('/rewards')}
-          fullWidth
-        />
-        <Spacer size="sm" />
-        <Button
-          label="Party Hub"
-          element={element}
-          variant="ghost"
-          onPress={() => router.push('/party')}
-          fullWidth
-        />
+        {syncState === 'done' && latestResult && (
+          <SystemWindow title="◆ RUN RESOLVED ◆" variant="gold">
+            {Object.keys(latestResult.stat_gains).length > 0 && (
+              <>
+                <Text style={styles.syncSubtitle}>STAT GAINS</Text>
+                <View style={styles.gainRow}>
+                  {Object.entries(latestResult.stat_gains).map(([k, v]) => (
+                    <View key={k} style={styles.gainChip}>
+                      <Text style={styles.gainKey}>{k}</Text>
+                      <Text style={styles.gainVal}>{`+${v}`}</Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+            {latestResult.rewards.length > 0 && (
+              <>
+                <Spacer size="sm" />
+                <Text style={styles.syncSubtitle}>REWARDS</Text>
+                {latestResult.rewards.map(r => (
+                  <Text key={r.id} style={[styles.rewardLine, { color: rarityColor(r.rarity) }]}>
+                    {'◆ '}{r.name.toUpperCase()}
+                  </Text>
+                ))}
+              </>
+            )}
+            {latestResult.flag_reason && (
+              <Text style={styles.flagText}>{`⚠ ${latestResult.flag_reason}`}</Text>
+            )}
+          </SystemWindow>
+        )}
+
+        {syncState === 'error' && (
+          <SystemWindow title="SYNC UNAVAILABLE" variant="alert">
+            <Text style={styles.syncLine}>
+              {syncError?.includes('No completed run') || syncError?.includes('48 hours')
+                ? '> No recent run found. Complete a workout and reopen the app.'
+                : syncError?.includes('Health') || syncError?.includes('permission')
+                  ? '> Health permissions needed. Check your device settings.'
+                  : '> Could not reach server. Check your connection.'}
+            </Text>
+          </SystemWindow>
+        )}
 
         <Spacer size="xl" />
       </ScrollView>
@@ -167,30 +190,12 @@ export default function CommandHub() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.ground,
-  },
-  scroll: {
-    padding: SPACING.md,
-  },
-  center: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  header: {
-    alignItems: 'flex-start',
-    paddingTop: SPACING.sm,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-    flexWrap: 'wrap',
-  },
-  flex1: {
-    flex: 1,
-  },
+  container: { flex: 1, backgroundColor: COLORS.ground },
+  scroll: { padding: SPACING.md },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  header: { alignItems: 'flex-start', paddingTop: SPACING.sm },
+  row: { flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' },
+  flex1: { flex: 1 },
   elementPill: {
     borderWidth: 1,
     borderRadius: 2,
@@ -203,8 +208,57 @@ const styles = StyleSheet.create({
     borderRadius: 1,
     overflow: 'hidden',
   },
-  progressFill: {
-    height: '100%',
-    borderRadius: 1,
+  progressFill: { height: '100%', borderRadius: 1 },
+
+  // Sync result
+  syncLine: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+  },
+  syncSubtitle: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    letterSpacing: LETTER_SPACING.wide,
+    marginBottom: SPACING.xs,
+  },
+  dots: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
+  dot: { width: 6, height: 6, borderRadius: 1, opacity: 0.7 },
+  gainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
+  gainChip: {
+    flexDirection: 'row',
+    gap: 3,
+    borderWidth: 1,
+    borderColor: COLORS.systemGold + '50',
+    borderRadius: 2,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    backgroundColor: COLORS.systemGoldDim,
+  },
+  gainKey: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.systemGold,
+    letterSpacing: LETTER_SPACING.tight,
+  },
+  gainVal: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.success,
+    fontWeight: '700',
+  },
+  rewardLine: {
+    fontFamily: FONTS.display,
+    fontSize: FONT_SIZES.sm,
+    letterSpacing: LETTER_SPACING.normal,
+    marginBottom: 2,
+  },
+  flagText: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.warning,
+    marginTop: SPACING.xs,
   },
 })

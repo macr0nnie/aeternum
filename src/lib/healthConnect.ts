@@ -16,6 +16,7 @@
 import {
   initialize,
   requestPermission,
+  getGrantedPermissions,
   readRecords,
 } from 'react-native-health-connect'
 import type { HealthConnectSession } from '@/types'
@@ -34,7 +35,27 @@ const REQUIRED_PERMISSIONS = [
 ]
 
 // ---------------------------------------------------------------------------
-// Initialise + request permissions
+// Check existing grants (safe to call from any context — no dialog)
+// ---------------------------------------------------------------------------
+
+export async function checkHealthConnect(): Promise<boolean> {
+  try {
+    const isAvailable = await initialize()
+    if (!isAvailable) return false
+
+    const granted = await getGrantedPermissions()
+    const requiredTypes = REQUIRED_PERMISSIONS.map(p => p.recordType)
+    return requiredTypes.every(type =>
+      granted.some((g: { recordType: string }) => g.recordType === type),
+    )
+  } catch {
+    return false
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Request permissions (MUST be called from a user interaction / Activity context)
+// Calling this from a background useEffect will crash on Android.
 // ---------------------------------------------------------------------------
 
 export async function initHealthConnect(): Promise<boolean> {
