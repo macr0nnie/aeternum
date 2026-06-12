@@ -353,6 +353,58 @@ export async function upsertFortress(playerId: string, patch: Record<string, unk
 }
 
 // ---------------------------------------------------------------------------
+// Player inventory + progress persistence
+// ---------------------------------------------------------------------------
+
+export async function fetchPlayerProgress(playerId: string) {
+  return supabase
+    .from('players')
+    .select('inventory, equipped, completed_quest_ids, cleared_dungeon_ids, stats, rank, traits')
+    .eq('id', playerId)
+    .single()
+}
+
+export async function savePlayerTraits(playerId: string, traits: import('@/types').PlayerTraits) {
+  return supabase
+    .from('players')
+    .update({ traits, updated_at: new Date().toISOString() })
+    .eq('id', playerId)
+}
+
+export async function savePlayerInventory(
+  playerId: string,
+  inventory: import('@/types').PlayerInventory,
+  equipped: import('@/types').GearLoadout,
+) {
+  return supabase
+    .from('players')
+    .update({ inventory, equipped, updated_at: new Date().toISOString() })
+    .eq('id', playerId)
+}
+
+export async function savePlayerProgress(
+  playerId: string,
+  completedQuestIds: string[],
+  clearedDungeonIds: string[],
+) {
+  return supabase
+    .from('players')
+    .update({
+      completed_quest_ids: completedQuestIds,
+      cleared_dungeon_ids: clearedDungeonIds,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', playerId)
+}
+
+export async function savePlayerStats(playerId: string, stats: import('@/types').Stats, rank?: string) {
+  return supabase
+    .from('players')
+    .update({ stats, ...(rank ? { rank } : {}), updated_at: new Date().toISOString() })
+    .eq('id', playerId)
+}
+
+// ---------------------------------------------------------------------------
 // Fortress crops
 // ---------------------------------------------------------------------------
 

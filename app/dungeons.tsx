@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useStore, selectPlayer, selectClearedDungeonIds, selectEquipped, selectPartyMembers } from '@/store/useStore'
+import { useStore, selectPlayer, selectClearedDungeonIds, selectEquipped, selectPartyMembers, selectUnlockedSkillIds } from '@/store/useStore'
 import {
   Heading, Label, Button, Spacer, Divider, DungeonRankBadge, SystemWindow,
   CornerPanel, SectionHeader, StatBar,
@@ -17,8 +17,9 @@ import {
   COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS,
   elementAccent, SHADOWS,
 } from '@/theme/tokens'
-import { DUNGEON_ENTRIES, STAT_KEYS, STAT_LABELS, STAT_SOURCES, type DungeonEntry, type Element, type StatKey } from '@/types'
+import { DUNGEON_ENTRIES, STAT_KEYS, STAT_LABELS, STAT_SOURCES, type DungeonEntry, type Element, type StatKey, type TraitKey } from '@/types'
 import { resolveCoOpGate, type PublicPlayer } from '@/lib/supabase'
+import { computeRewards } from '@/lib/rewardEngine'
 
 // ---------------------------------------------------------------------------
 // Win probability calculator (client-side preview only — server resolves actual outcome)
@@ -292,7 +293,20 @@ export default function DungeonsScreen() {
   const clearedIds = useStore(selectClearedDungeonIds)
   const equipped = useStore(selectEquipped)
   const partyMembers = useStore(selectPartyMembers)
-  const { clearDungeon } = useStore()
+  const { clearDungeon, addTrait, unlockSkill } = useStore()
+  const traits = useStore(s => s.traits)
+  const unlockedSkillIds = useStore(selectUnlockedSkillIds) as string[]
+
+  function applyPersonalizedRewards(dungeon: DungeonEntry) {
+    const rewards = computeRewards(dungeon, traits, unlockedSkillIds, player?.primary_element)
+    // Trait bonuses
+    for (const [key, amount] of Object.entries(rewards.traitRewards)) {
+      if (amount) addTrait(key as TraitKey, amount)
+    }
+    // Skill unlock
+    if (rewards.skillUnlock) unlockSkill(rewards.skillUnlock)
+    return rewards.statRewards
+  }
 
   const [selectedDungeon, setSelectedDungeon] = useState<DungeonEntry | null>(null)
   const [showWinProb, setShowWinProb] = useState(false)
@@ -337,8 +351,9 @@ export default function DungeonsScreen() {
     setShowCoOp(false)
 
     if (participantIds.length === 1) {
-      // Solo — use local clear path
-      clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+      // Solo — use local clear path with personalized rewards
+      const statRewards = applyPersonalizedRewards(selectedDungeon)
+      clearDungeon(selectedDungeon.id, statRewards)
       setSelectedDungeon(null)
       return
     }
@@ -349,7 +364,8 @@ export default function DungeonsScreen() {
       const result = await resolveCoOpGate(selectedDungeon.id, participantIds)
       if (!result) throw new Error('No response from server')
       if (result.won) {
-        clearDungeon(selectedDungeon.id, result.outcomes?.find(o => o.player_id === player.id)?.stat_gains ?? {})
+        const statRewards = applyPersonalizedRewards(selectedDungeon)
+        clearDungeon(selectedDungeon.id, result.outcomes?.find(o => o.player_id === player.id)?.stat_gains ?? statRewards)
       }
       setCoOpResult({
         won: result.won,
@@ -360,7 +376,10 @@ export default function DungeonsScreen() {
     } catch {
       // Edge function unavailable or returned null — fall back to local resolution
       const localWon = Math.random() < calcWinProbability(selectedDungeon, stats, totalDistance)
-      if (localWon) clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+      if (localWon) {
+        const statRewards = applyPersonalizedRewards(selectedDungeon)
+        clearDungeon(selectedDungeon.id, statRewards)
+      }
       setCoOpResult({
         won: localWon,
         winProb: calcWinProbability(selectedDungeon, stats, totalDistance),
@@ -375,7 +394,8 @@ export default function DungeonsScreen() {
 
   function handleClear() {
     if (!selectedDungeon) return
-    clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+    const statRewards = applyPersonalizedRewards(selectedDungeon)
+    clearDungeon(selectedDungeon.id, statRewards)
     setShowClearModal(false)
     setSelectedDungeon(null)
   }
@@ -388,9 +408,6 @@ export default function DungeonsScreen() {
     {},
   )
 
-  const playerRankIdx = Math.max(0, RANK_ORDER.indexOf(player?.rank ?? 'F'))
-  const availableRanks = RANK_ORDER.slice(0, playerRankIdx + 1)
-  const nextTierRank = RANK_ORDER[playerRankIdx + 1] as string | undefined
 
   return (
     <SafeAreaView style={styles.container}>
@@ -428,11 +445,13 @@ export default function DungeonsScreen() {
           </View>
         </SystemWindow>
 
-        <SectionHeader title="YOUR GATES" color={palette.base} />
+        <SectionHeader title="GATES" color={palette.base} />
 
-        {availableRanks.map((rank) => {
-          const dungeons = grouped[rank]
-          if (!dungeons || dungeons.length === 0) return null
+        {RANK_ORDER.map((rank) => {
+          const dungeons = (grouped[rank] ?? []).filter(d =>
+            clearedIds.includes(d.id) || meetsRequirements(d),
+          )
+          if (dungeons.length === 0) return null
           const rankColor = DUNGEON_RANK_COLORS[rank]
           return (
             <View key={rank}>
@@ -441,46 +460,18 @@ export default function DungeonsScreen() {
                   {`RANK ${rank} GATES`}
                 </Text>
               </View>
-              {dungeons.map((dungeon) => {
-                const unlocked = meetsRequirements(dungeon)
-                const cleared = clearedIds.includes(dungeon.id)
-                return (
-                  <DungeonCard
-                    key={dungeon.id}
-                    dungeon={dungeon}
-                    unlocked={unlocked}
-                    cleared={cleared}
-                    stats={stats}
-                    totalDistance={totalDistance}
-                    onEnter={() => handleEnterDungeon(dungeon)}
-                  />
-                )
-              })}
+              {dungeons.map((dungeon) => (
+                <DungeonCard
+                  key={dungeon.id}
+                  dungeon={dungeon}
+                  cleared={clearedIds.includes(dungeon.id)}
+                  onEnter={() => handleEnterDungeon(dungeon)}
+                />
+              ))}
               <Spacer size="sm" />
             </View>
           )
         })}
-
-        {nextTierRank && grouped[nextTierRank] && grouped[nextTierRank].length > 0 && (
-          <>
-            <Spacer size="md" />
-            <View style={styles.nextTierHeader}>
-              <View style={[styles.nextTierStripe, { backgroundColor: DUNGEON_RANK_COLORS[nextTierRank] }]} />
-              <View style={styles.nextTierInfo}>
-                <Text style={[styles.nextTierTitle, { color: DUNGEON_RANK_COLORS[nextTierRank] }]}>
-                  {`NEXT TIER — RANK ${nextTierRank} GATES`}
-                </Text>
-                <Text style={styles.nextTierSub}>Raise your stats to unlock these gates</Text>
-              </View>
-              <View style={[styles.nextTierBadge, { borderColor: DUNGEON_RANK_COLORS[nextTierRank] }]}>
-                <Text style={[styles.nextTierBadgeTxt, { color: DUNGEON_RANK_COLORS[nextTierRank] }]}>LOCKED</Text>
-              </View>
-            </View>
-            {grouped[nextTierRank].map((dungeon) => (
-              <NextTierCard key={dungeon.id} dungeon={dungeon} stats={stats} totalDistance={totalDistance} />
-            ))}
-          </>
-        )}
 
         <Spacer size="xl" />
       </ScrollView>
@@ -589,39 +580,28 @@ export default function DungeonsScreen() {
 
 function DungeonCard({
   dungeon,
-  unlocked,
   cleared,
-  stats,
-  totalDistance,
   onEnter,
 }: {
   dungeon: DungeonEntry
-  unlocked: boolean
   cleared: boolean
-  stats: Record<string, number>
-  totalDistance: number
   onEnter: () => void
 }) {
   const rankColor = DUNGEON_RANK_COLORS[dungeon.rank]
   const [expanded, setExpanded] = useState(false)
 
-  const missingStats = Object.entries(dungeon.statRequirements).filter(
-    ([k, v]) => (stats[k] ?? 0) < (v as number),
-  )
-  const distanceMet = totalDistance >= dungeon.minDistanceKm
-
   return (
     <TouchableOpacity
-      activeOpacity={unlocked ? 0.8 : 0.95}
-      onPress={() => unlocked && !cleared && setExpanded((p) => !p)}
+      activeOpacity={0.8}
+      onPress={() => !cleared && setExpanded((p) => !p)}
       style={[
         cardStyles.card,
         {
-          borderColor: cleared ? rankColor + '60' : unlocked ? rankColor + 'aa' : COLORS.borderLow,
-          backgroundColor: cleared ? COLORS.surfaceHigh : unlocked ? COLORS.surface : COLORS.locked,
+          borderColor: cleared ? rankColor + '60' : rankColor + 'aa',
+          backgroundColor: cleared ? COLORS.surfaceHigh : COLORS.surface,
           opacity: cleared ? 0.6 : 1,
         },
-        unlocked && !cleared && { ...(SHADOWS.md as object) },
+        !cleared && { ...(SHADOWS.md as object) },
       ]}
     >
       {/* Top row */}
@@ -630,10 +610,7 @@ function DungeonCard({
         <View style={cardStyles.info}>
           <View style={cardStyles.nameRow}>
             <DungeonRankBadge rank={dungeon.rank} size="sm" />
-            <Text style={[
-              cardStyles.name,
-              { color: cleared ? COLORS.textTertiary : unlocked ? COLORS.textPrimary : COLORS.textTertiary },
-            ]}>
+            <Text style={[cardStyles.name, { color: cleared ? COLORS.textTertiary : COLORS.textPrimary }]}>
               {cleared ? `[CLEARED] ${dungeon.name.toUpperCase()}` : dungeon.name.toUpperCase()}
             </Text>
           </View>
@@ -641,41 +618,11 @@ function DungeonCard({
             {dungeon.description}
           </Text>
         </View>
-        {/* Lock indicator */}
-        {!unlocked && (
-          <Text style={cardStyles.lockIcon}>⊘</Text>
-        )}
-        {cleared && (
-          <Text style={[cardStyles.lockIcon, { color: rankColor }]}>✓</Text>
-        )}
+        {cleared && <Text style={[cardStyles.lockIcon, { color: rankColor }]}>✓</Text>}
       </View>
 
-      {/* Requirements (shown when locked) */}
-      {!unlocked && !cleared && (
-        <View style={cardStyles.reqRow}>
-          {!distanceMet && (
-            <View style={cardStyles.reqChip}>
-              <Text style={cardStyles.reqKey}>DIST</Text>
-              <Text style={cardStyles.reqVal}>{totalDistance.toFixed(0)}/{dungeon.minDistanceKm} km</Text>
-            </View>
-          )}
-          {missingStats.slice(0, 4).map(([k, v]) => (
-            <View key={k} style={cardStyles.reqChip}>
-              <Text style={cardStyles.reqKey}>{k}</Text>
-              <Text style={cardStyles.reqVal}>{stats[k] ?? 0}/{v}</Text>
-              {STAT_SOURCES[k as StatKey] && (
-                <Text style={cardStyles.reqHint}> · {STAT_SOURCES[k as StatKey]}</Text>
-              )}
-            </View>
-          ))}
-          {missingStats.length > 4 && (
-            <Text style={cardStyles.reqMore}>{`+${missingStats.length - 4} more`}</Text>
-          )}
-        </View>
-      )}
-
       {/* Expanded: rewards + enter button */}
-      {expanded && unlocked && !cleared && (
+      {expanded && !cleared && (
         <View style={cardStyles.expandedSection}>
           <Text style={[cardStyles.flavorText, { color: rankColor + 'cc' }]}>
             {`"${dungeon.flavor}"`}
@@ -705,104 +652,6 @@ function DungeonCard({
   )
 }
 
-// ---------------------------------------------------------------------------
-// NextTierCard — teaser card for the rank above the player's current rank
-// ---------------------------------------------------------------------------
-
-function NextTierCard({ dungeon, stats, totalDistance }: {
-  dungeon: DungeonEntry
-  stats: Record<string, number>
-  totalDistance: number
-}) {
-  const rankColor = DUNGEON_RANK_COLORS[dungeon.rank]
-
-  const reqs: { key: string; have: number; need: number; suffix: string; source?: string }[] = []
-  if (totalDistance < dungeon.minDistanceKm) {
-    reqs.push({ key: 'DIST', have: totalDistance, need: dungeon.minDistanceKm, suffix: ' km' })
-  }
-  for (const [k, v] of Object.entries(dungeon.statRequirements)) {
-    reqs.push({ key: k, have: stats[k] ?? 0, need: v as number, suffix: '', source: STAT_SOURCES[k as StatKey] })
-  }
-
-  return (
-    <View style={[nextStyles.card, { borderColor: rankColor + '35' }]}>
-      <View style={nextStyles.topRow}>
-        <View style={[nextStyles.rankStripe, { backgroundColor: rankColor + '55' }]} />
-        <View style={nextStyles.info}>
-          <View style={nextStyles.nameRow}>
-            <DungeonRankBadge rank={dungeon.rank} size="sm" />
-            <Text style={nextStyles.name} numberOfLines={1}>{dungeon.name.toUpperCase()}</Text>
-          </View>
-          <Text style={nextStyles.desc} numberOfLines={1}>{dungeon.description}</Text>
-        </View>
-        <Text style={nextStyles.lockIcon}>⊘</Text>
-      </View>
-
-      {reqs.length > 0 && (
-        <View style={nextStyles.reqSection}>
-          {reqs.map(({ key, have, need, suffix, source }) => {
-            const pct = Math.min(100, need > 0 ? (have / need) * 100 : 100)
-            return (
-              <View key={key} style={nextStyles.reqItem}>
-                <View style={nextStyles.reqLabelRow}>
-                  <Text style={nextStyles.reqKey}>{key}</Text>
-                  <Text style={nextStyles.reqProgress}>{`${have.toFixed(0)} / ${need}${suffix}`}</Text>
-                  {have < need && (
-                    <Text style={nextStyles.reqNeeded}>{`  +${(need - have).toFixed(0)} needed`}</Text>
-                  )}
-                </View>
-                <View style={nextStyles.reqTrack}>
-                  <View style={[nextStyles.reqFill, {
-                    width: `${pct}%` as any,
-                    backgroundColor: pct >= 100 ? COLORS.success : rankColor + '70',
-                  }]} />
-                </View>
-                {source && <Text style={nextStyles.reqSource}>from: {source}</Text>}
-              </View>
-            )
-          })}
-        </View>
-      )}
-    </View>
-  )
-}
-
-const nextStyles = StyleSheet.create({
-  card: {
-    borderWidth: BORDER.thin,
-    borderRadius: RADIUS.slight,
-    marginBottom: SPACING.sm,
-    overflow: 'hidden',
-    opacity: 0.72,
-    backgroundColor: COLORS.locked,
-  },
-  topRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.sm, gap: SPACING.sm },
-  rankStripe: { width: 3, alignSelf: 'stretch', borderRadius: 2, minHeight: 40 },
-  info: { flex: 1, gap: 4 },
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
-  name: {
-    fontFamily: FONTS.display, fontSize: FONT_SIZES.sm,
-    color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.normal, flex: 1,
-  },
-  desc: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textTertiary, lineHeight: FONT_SIZES.xs * 1.6 },
-  lockIcon: { fontSize: 18, color: COLORS.borderMid, paddingRight: SPACING.sm },
-  reqSection: {
-    paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm, paddingTop: SPACING.xs,
-    gap: SPACING.xs + 2,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.borderLow,
-  },
-  reqItem: { gap: 3 },
-  reqLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  reqKey: {
-    fontFamily: FONTS.display, fontSize: FONT_SIZES.xs,
-    color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.tight, width: 36,
-  },
-  reqProgress: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
-  reqNeeded: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.systemAlert },
-  reqTrack: { height: 3, backgroundColor: COLORS.surfaceHigh, borderRadius: 2, overflow: 'hidden' },
-  reqFill: { height: 3, borderRadius: 2 },
-  reqSource: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, fontStyle: 'italic' },
-})
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -841,20 +690,6 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     letterSpacing: LETTER_SPACING.extraWide,
   },
-  nextTierHeader: {
-    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
-    marginBottom: SPACING.sm, paddingVertical: SPACING.xs,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.borderMid,
-  },
-  nextTierStripe: { width: 3, height: 32, borderRadius: 2 },
-  nextTierInfo: { flex: 1 },
-  nextTierTitle: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xs, letterSpacing: LETTER_SPACING.extraWide },
-  nextTierSub: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, marginTop: 2 },
-  nextTierBadge: {
-    borderWidth: BORDER.thin, borderRadius: RADIUS.sharp,
-    paddingHorizontal: SPACING.xs + 2, paddingVertical: 2,
-  },
-  nextTierBadgeTxt: { fontFamily: FONTS.mono, fontSize: 9, letterSpacing: LETTER_SPACING.wide },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

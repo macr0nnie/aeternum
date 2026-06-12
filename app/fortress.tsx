@@ -23,10 +23,10 @@ import {
   saveDefenseSlots, fetchPlayerSkills, unlockSkill as serverUnlockSkill,
 } from '@/lib/supabase'
 import {
-  RESOURCE_ICONS, TYPE_MATCHUP_CHART, ELEMENT_LABELS, ALL_SKILLS, BASE_SKILLS,
-  CROP_CONFIG,
+  RESOURCE_ICONS, TYPE_MATCHUP_CHART, ELEMENT_LABELS, ELEMENT_EMOJI,
+  ALL_SKILLS, BASE_SKILLS, CROP_CONFIG, RARITY_COLORS,
   type Element, type Territory, type FortressCrop, type CropType,
-  type DefenseSlot, type PlayerResources, type Fortress,
+  type DefenseSlot, type PlayerResources, type Fortress, type PlayerSkill,
 } from '@/types'
 import type { Element as ElementType } from '@/types'
 
@@ -74,12 +74,6 @@ const res = StyleSheet.create({
 // =============================================================================
 // Element weakness row
 // =============================================================================
-
-const ELEMENT_EMOJI: Record<string, string> = {
-  fire: '🔥', water: '💧', nature: '🌿', arcane: '🔮',
-  shadow: '🌑', frost: '❄', earth: '⛰', harvest: '🌾',
-  forge: '⚒', mending: '✨',
-}
 
 function ElementStatus({ element }: { element: Element | null }) {
   if (!element) {
@@ -173,6 +167,18 @@ interface DefenseSlotGridProps {
   onSlotPress: (index: number) => void
 }
 
+function SkillActivationBadge({ skill }: { skill: PlayerSkill }) {
+  const isActive = skill.activation === 'active'
+  const elColor = skill.element ? elementAccent(skill.element as Element).base : COLORS.textTertiary
+  return (
+    <View style={[ds.badge, { borderColor: isActive ? elColor : COLORS.borderMid, backgroundColor: isActive ? elColor + '20' : COLORS.surfaceHigh }]}>
+      <Text style={[ds.badgeTxt, { color: isActive ? elColor : COLORS.textTertiary }]}>
+        {isActive ? '▶ ACT' : '◈ PSV'}
+      </Text>
+    </View>
+  )
+}
+
 function DefenseSlotGrid({ slots, unlockedSkillIds, onSlotPress }: DefenseSlotGridProps) {
   const filledMap = new Map(slots.map(s => [s.slot_index, s.skill_id]))
   return (
@@ -180,13 +186,33 @@ function DefenseSlotGrid({ slots, unlockedSkillIds, onSlotPress }: DefenseSlotGr
       {Array.from({ length: SLOT_COUNT }, (_, i) => {
         const skillId = filledMap.get(i) ?? null
         const skill = skillId ? ALL_SKILLS.find(s => s.id === skillId) : null
+        const elColor = skill?.element ? elementAccent(skill.element as Element).base : null
+        const isActive = skill?.activation === 'active'
         return (
-          <TouchableOpacity key={i} style={[ds.slot, skill && ds.slotFilled]} onPress={() => onSlotPress(i)} activeOpacity={0.75}>
+          <TouchableOpacity
+            key={i}
+            style={[
+              ds.slot,
+              skill && { borderColor: elColor ? elColor + '80' : COLORS.borderMid },
+              isActive && elColor && { backgroundColor: elColor + '12' },
+            ]}
+            onPress={() => onSlotPress(i)}
+            activeOpacity={0.75}
+          >
             {skill ? (
               <>
-                <Text style={ds.slotIcon}>{skill.icon}</Text>
-                <Text style={ds.slotName} numberOfLines={2}>{skill.name}</Text>
+                <View style={ds.slotTop}>
+                  <Text style={ds.slotIcon}>{skill.icon}</Text>
+                  {skill.element && (
+                    <Text style={ds.elEmoji}>{ELEMENT_EMOJI[skill.element as Element]}</Text>
+                  )}
+                </View>
+                <Text style={[ds.slotName, elColor && { color: elColor }]} numberOfLines={2}>{skill.name}</Text>
                 <Text style={ds.slotEffect} numberOfLines={1}>{skill.effect}</Text>
+                <SkillActivationBadge skill={skill} />
+                {isActive && skill.manaCost && (
+                  <Text style={ds.manaCost}>💧 {skill.manaCost} mana</Text>
+                )}
               </>
             ) : (
               <>
@@ -205,16 +231,23 @@ function DefenseSlotGrid({ slots, unlockedSkillIds, onSlotPress }: DefenseSlotGr
 const ds = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
   slot: {
-    width: '30%', minHeight: 90, flexGrow: 1,
+    width: '30%', minHeight: 100, flexGrow: 1,
     backgroundColor: COLORS.surface, borderWidth: BORDER.thin,
     borderColor: COLORS.borderMid, borderRadius: RADIUS.slight,
     alignItems: 'center', justifyContent: 'center',
     padding: SPACING.xs, gap: 3,
   },
-  slotFilled: { borderColor: COLORS.system + '80', backgroundColor: COLORS.systemDim },
-  slotIcon: { fontSize: 24 },
+  slotTop: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  slotIcon: { fontSize: 22 },
+  elEmoji: { fontSize: 12 },
   slotName: { fontFamily: FONTS.display, fontSize: 10, color: COLORS.textPrimary, textAlign: 'center', letterSpacing: LETTER_SPACING.normal },
-  slotEffect: { fontFamily: FONTS.mono, fontSize: 8, color: COLORS.textTertiary, textAlign: 'center' },
+  slotEffect: { fontFamily: FONTS.mono, fontSize: 7, color: COLORS.textTertiary, textAlign: 'center' },
+  badge: {
+    borderWidth: 1, borderRadius: RADIUS.sharp,
+    paddingHorizontal: 5, paddingVertical: 2, marginTop: 2,
+  },
+  badgeTxt: { fontFamily: FONTS.mono, fontSize: 8, letterSpacing: LETTER_SPACING.wide },
+  manaCost: { fontFamily: FONTS.mono, fontSize: 8, color: '#60a5fa', marginTop: 1 },
   emptyIcon: { fontSize: 20, color: COLORS.borderMid },
   emptyLabel: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide },
   emptyHint: { fontFamily: FONTS.mono, fontSize: 8, color: COLORS.textTertiary, fontStyle: 'italic', textAlign: 'center' },
@@ -373,6 +406,7 @@ export default function FortressScreen() {
 
   const element = (player?.primary_element ?? fortress.element) as ElementType | null
   const palette = elementAccent(element)
+  const defenseSlots: DefenseSlot[] = fortress.defense_slots ?? []
 
   const load = useCallback(async () => {
     if (!player) return
@@ -412,7 +446,7 @@ export default function FortressScreen() {
   async function handleEquipSkill(slotIndex: number, skillId: string) {
     if (!player) return
     const next: DefenseSlot[] = [
-      ...fortress.defense_slots.filter(s => s.slot_index !== slotIndex),
+      ...defenseSlots.filter(s => s.slot_index !== slotIndex),
       { slot_index: slotIndex, skill_id: skillId },
     ]
     setFortress({ ...fortress, defense_slots: next })
@@ -422,7 +456,7 @@ export default function FortressScreen() {
 
   async function handleRemoveSkill(slotIndex: number) {
     if (!player) return
-    const next = fortress.defense_slots.filter(s => s.slot_index !== slotIndex)
+    const next = defenseSlots.filter(s => s.slot_index !== slotIndex)
     setFortress({ ...fortress, defense_slots: next })
     setSlotModal(null)
     await saveDefenseSlots(player.id, next)
@@ -461,12 +495,12 @@ export default function FortressScreen() {
 
   // The slot being pressed — derive what's equipped
   const activeSlotSkillId = slotModal !== null
-    ? (fortress.defense_slots.find(s => s.slot_index === slotModal)?.skill_id ?? null)
+    ? (defenseSlots.find(s => s.slot_index === slotModal)?.skill_id ?? null)
     : null
   const unlockedBaseSkills = BASE_SKILLS.filter(s => unlockedSkillIds.includes(s.id))
 
   // Defense rating (rough sum of base skill count × 20)
-  const defRating = fortress.defense_slots.filter(s => s.skill_id).length * 20 +
+  const defRating = defenseSlots.filter(s => s.skill_id).length * 20 +
     myTerritories.length * 5
 
   return (
@@ -516,7 +550,7 @@ export default function FortressScreen() {
           </View>
         )}
         <DefenseSlotGrid
-          slots={fortress.defense_slots}
+          slots={defenseSlots}
           unlockedSkillIds={unlockedSkillIds}
           onSlotPress={(i) => setSlotModal(i)}
         />

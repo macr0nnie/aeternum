@@ -9,6 +9,8 @@ import { useStore, selectPlayer, selectHealthPermissionAsked } from '@/store/use
 import { SectionHeader, SystemWindow } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING } from '@/theme/tokens'
 import { supabase } from '@/lib/supabase'
+import { TRAIT_KEYS, PLAYER_SKILLS } from '@/types'
+import type { TraitKey } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Setting row
@@ -60,9 +62,48 @@ const SettingRow: React.FC<SettingRowProps> = ({
 export default function SettingsScreen() {
   const player = useStore(selectPlayer)
   const healthPermissionAsked = useStore(selectHealthPermissionAsked)
-  const { reset } = useStore()
+  const {
+    reset, setPlayer, addTrait, addInfluence, unlockSkill,
+    setClearedDungeonIds, applyRunResult,
+  } = useStore()
 
   const [signingOut, setSigningOut] = useState(false)
+
+  // ── Debug helpers ──────────────────────────────────────────────────────────
+
+  function debugSimulateRun() {
+    if (!player) return
+    setPlayer({ ...player, total_distance_km: (player.total_distance_km ?? 0) + 5 })
+    applyRunResult({
+      run_id: `debug-${Date.now()}`,
+      validated: true,
+      rewards: [],
+      stat_gains: { ATK: 2, END: 2, SPD: 1, DEF: 1, INT: 1 },
+    })
+    Alert.alert('Debug', '+5 km synced. Stats updated.')
+  }
+
+  function debugAddTraits() {
+    for (const key of TRAIT_KEYS) addTrait(key as TraitKey, 20)
+    Alert.alert('Debug', '+20 added to all traits. Check Hunter → Identity.')
+  }
+
+  function debugUnlockSkill() {
+    const skill = PLAYER_SKILLS[Math.floor(Math.random() * PLAYER_SKILLS.length)]
+    if (!skill) return
+    unlockSkill(skill.id)
+    Alert.alert('Debug', `Unlocked: ${skill.name}`)
+  }
+
+  function debugAddInfluence() {
+    addInfluence(200)
+    Alert.alert('Debug', '+200 Influence added.')
+  }
+
+  function debugResetDungeons() {
+    setClearedDungeonIds([])
+    Alert.alert('Debug', 'All dungeon clears reset.')
+  }
 
   async function handleRequestHealth() {
     try {
@@ -171,6 +212,37 @@ export default function SettingsScreen() {
             label="Reset Local Cache"
             sub="Clears quest/dungeon/gear cache. Server data is safe."
             onPress={handleResetLocalData}
+            destructive
+          />
+        </View>
+
+        {/* Debug tools */}
+        <SectionHeader title="DEBUG TOOLS" />
+        <View style={styles.section}>
+          <SettingRow
+            label="+ 5 km Run"
+            sub="Simulate a 5km run sync (+stats)"
+            onPress={debugSimulateRun}
+          />
+          <SettingRow
+            label="+ Traits × 20"
+            sub="Add 20 to all traits — triggers archetype discovery"
+            onPress={debugAddTraits}
+          />
+          <SettingRow
+            label="Unlock Random Skill"
+            sub="Unlock a random player skill for testing"
+            onPress={debugUnlockSkill}
+          />
+          <SettingRow
+            label="+ 200 Influence"
+            sub="Add influence for world territory testing"
+            onPress={debugAddInfluence}
+          />
+          <SettingRow
+            label="Reset Dungeon Clears"
+            sub="Lets you re-test dungeon rewards"
+            onPress={debugResetDungeons}
             destructive
           />
         </View>

@@ -27,14 +27,18 @@ import {
   fetchNearbyTerritories, fetchMyTerritories, placeTerritory,
   fetchNearbyNodes, harvestNode, attackTerritory, spawnNodesNearTerritory,
 } from '@/lib/supabase'
-import type { Territory, ResourceNode, Element, ResourceType } from '@/types'
+import type { Territory, ResourceNode, Element, ResourceType, TraitKey } from '@/types'
 import {
   RESOURCE_LABELS, RESOURCE_ICONS, TERRITORY_PLACE_COST,
   HARVEST_COOLDOWN_H, HARVEST_RANGE_M, ATTACK_RANGE_KM,
 } from '@/types'
 
-// Free dark basemap — no-labels variant keeps the game elements as the visual focus
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json'
+// Voyager: clean roads-focused style — simple base for future virtual-world theming
+const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/voyager-nolabels-gl-style/style.json'
+
+// TODO (prod): remove dummy location — require real GPS and show "enable location" screen
+const DUMMY_LAT = 37.7749
+const DUMMY_LNG = -122.4194
 
 // =============================================================================
 // Helpers
@@ -410,7 +414,7 @@ export default function WorldScreen() {
   const nearbyTerritories = useStore(selectNearbyTerritories)
   const nearbyNodes = useStore(selectNearbyNodes)
   const {
-    addInfluence, spendInfluence, addResource,
+    addInfluence, spendInfluence, addResource, addTrait,
     setMyTerritories, addMyTerritory, setNearbyTerritories, setNearbyNodes,
   } = useStore()
 
@@ -421,7 +425,15 @@ export default function WorldScreen() {
   const [selectedNode, setSelectedNode] = useState<ResourceNode | null>(null)
   const [showPlace, setShowPlace] = useState(false)
   const [placing, setPlacing] = useState(false)
+  const [scanNote, setScanNote] = useState<string | null>(null)
   const cameraRef = useRef<CameraRef>(null)
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function showNote(msg: string, ms = 4000) {
+    if (noteTimer.current) clearTimeout(noteTimer.current)
+    setScanNote(msg)
+    noteTimer.current = setTimeout(() => setScanNote(null), ms)
+  }
 
   const element = player?.primary_element as Element | null
   const palette = elementAccent(element)
@@ -438,58 +450,70 @@ export default function WorldScreen() {
   // On Android emulator without a mock location, getCurrentPositionAsync never rejects —
   // it just hangs. We race it against a 6 s timeout then fall back to the last cached fix.
   async function getLocation(): Promise<{ lat: number; lng: number } | null> {
-    try {
-      const pos = await Promise.race<Location.LocationObject | null>([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
-        new Promise<null>(resolve => setTimeout(() => resolve(null), 6000)),
-      ])
-      if (pos) return { lat: pos.coords.latitude, lng: pos.coords.longitude }
-    } catch {}
-    // Last-known fallback — works on emulator that previously had a mock location set
+    // Last-known first — returns instantly and picks up emulator mock GPS locations.
+    // getCurrentPositionAsync(Accuracy.Low) uses the network provider which ignores mocks.
     try {
       const last = await Location.getLastKnownPositionAsync()
       if (last) return { lat: last.coords.latitude, lng: last.coords.longitude }
     } catch {}
+    // Live fix fallback with timeout — uses GPS/Balanced so it sees the mock location
+    try {
+      const pos = await Promise.race<Location.LocationObject | null>([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 8000)),
+      ])
+      if (pos) return { lat: pos.coords.latitude, lng: pos.coords.longitude }
+    } catch {}
     return null
   }
 
-  // Fetch nearby territories + nodes centred on (lat, lng)
+  // Fetch nearby territories + nodes centred on (lat, lng); returns counts for UI feedback
   const loadMapData = useCallback(async (lat: number, lng: number) => {
-    if (!player) return
-    const [nearby, mine, nodes] = await Promise.all([
-      fetchNearbyTerritories(lat, lng, ATTACK_RANGE_KM),
-      fetchMyTerritories(player.id),
-      fetchNearbyNodes(lat, lng, 2),
-    ])
-    setNearbyTerritories((nearby.data ?? []) as Territory[])
-    setMyTerritories((mine.data ?? []) as Territory[])
-    setNearbyNodes((nodes.data ?? []) as ResourceNode[])
+    if (!player) return { territories: 0, nodes: 0 }
+    try {
+      const [nearby, mine, nodes] = await Promise.all([
+        fetchNearbyTerritories(lat, lng, ATTACK_RANGE_KM),
+        fetchMyTerritories(player.id),
+        fetchNearbyNodes(lat, lng, 2),
+      ])
+      const nearbyList = (nearby.data ?? []) as Territory[]
+      const mineList   = (mine.data   ?? []) as Territory[]
+      const nodeList   = (nodes.data  ?? []) as ResourceNode[]
+      setNearbyTerritories(nearbyList)
+      setMyTerritories(mineList)
+      setNearbyNodes(nodeList)
+      return { territories: nearbyList.length + mineList.length, nodes: nodeList.length }
+    } catch {
+      return { territories: 0, nodes: 0 }
+    }
   }, [player, setNearbyTerritories, setMyTerritories, setNearbyNodes])
 
-  // Scan: grab GPS once, load map data, then centre camera
+  // Scan: grab GPS once, load map data, then centre camera.
+  // TODO (prod): remove dummy fallback — real users must have GPS.
   async function handleScan() {
     setScanning(true)
-    const loc = await getLocation()
-    if (loc) {
-      setLocation(loc)
-      await loadMapData(loc.lat, loc.lng)
-      cameraRef.current?.jumpTo({ center: coord(loc.lat, loc.lng), zoom: 13 })
-    } else {
-      Alert.alert('Location Unavailable', 'Could not get your position. On an emulator, set a mock location via Extended Controls → Location.')
-    }
+    let loc = await getLocation()
+    if (!loc) loc = { lat: DUMMY_LAT, lng: DUMMY_LNG }
+    setLocation(loc)
+    const result = await loadMapData(loc.lat, loc.lng)
+    cameraRef.current?.jumpTo({ center: coord(loc.lat, loc.lng), zoom: 14 })
+    addTrait('exploration' as TraitKey, 2)
     setScanning(false)
+    const { territories, nodes } = result ?? { territories: 0, nodes: 0 }
+    showNote(
+      territories > 0 || nodes > 0
+        ? `${territories} territories · ${nodes} nodes found`
+        : 'No activity nearby — claim territory to start'
+    )
   }
 
   async function handlePlace(name: string) {
     if (!player) return
     setPlacing(true)
-    // Resolve GPS before spending anything — nothing to refund if location fails
-    const loc = await getLocation()
-    if (!loc) {
-      Alert.alert('Error', 'Could not get your location. Try again.')
-      setPlacing(false); setShowPlace(false)
-      return
-    }
+    // Use GPS if available; fall back to last scan location then dummy.
+    // TODO (prod): require real GPS — don't allow claiming with dummy coords.
+    const gps = await getLocation()
+    const loc = gps ?? location ?? { lat: DUMMY_LAT, lng: DUMMY_LNG }
     if (!spendInfluence(TERRITORY_PLACE_COST)) {
       Alert.alert('Not enough influence', `You need ${TERRITORY_PLACE_COST} influence to claim territory.`)
       setPlacing(false); setShowPlace(false)
@@ -502,9 +526,11 @@ export default function WorldScreen() {
       if (data) {
         placed = true
         addMyTerritory(data as Territory)
-        // Node spawning is non-critical — don't block on its failure
+        addTrait('conquest' as TraitKey, 10)
+        addTrait('exploration' as TraitKey, 3)
         await spawnNodesNearTerritory(data.id, loc.lat, loc.lng).catch(() => null)
         await loadMapData(loc.lat, loc.lng)
+        showNote('Territory claimed! Resource nodes spawned nearby.')
       } else {
         addInfluence(TERRITORY_PLACE_COST)
         Alert.alert('Error', 'Could not claim territory. Influence refunded.')
@@ -521,6 +547,7 @@ export default function WorldScreen() {
 
   function handleHarvestDone(nodeId: string, type: string, amount: number) {
     addResource(type as ResourceType, amount)
+    addTrait('gathering' as TraitKey, 5)
     setNearbyNodes(nearbyNodes.map(n =>
       n.id === nodeId ? { ...n, last_harvested_at: new Date().toISOString(), last_harvested_by: player!.id } : n
     ))
@@ -528,8 +555,21 @@ export default function WorldScreen() {
 
   const myIds = new Set(myTerritories.map(t => t.id))
   const enemyTerritories = nearbyTerritories.filter(t => !myIds.has(t.id))
-  // Fallback center keeps map warm before first scan; real coords overwrite on SCAN
-  const mapCenter = location ?? { lat: 37.7749, lng: -122.4194 }
+
+  const mapCenter = location ?? { lat: DUMMY_LAT, lng: DUMMY_LNG }
+
+  // Restrict panning to ~5 km radius around the player.
+  // No bounds before first scan so the map can initialise without jumping.
+  const MAP_BOUND_DEG = 0.045  // ≈ 5 km
+  // LngLatBounds = [west, south, east, north]
+  const mapBounds = location
+    ? [
+        location.lng - MAP_BOUND_DEG,
+        location.lat - MAP_BOUND_DEG,
+        location.lng + MAP_BOUND_DEG,
+        location.lat + MAP_BOUND_DEG,
+      ] as [number, number, number, number]
+    : undefined
 
   if (locError) {
     return (
@@ -555,10 +595,14 @@ export default function WorldScreen() {
       <MapLibreMap
         style={StyleSheet.absoluteFill}
         mapStyle={MAP_STYLE}
+        androidView="texture"
       >
         <Camera
           ref={cameraRef}
-          initialViewState={{ center: coord(mapCenter.lat, mapCenter.lng), zoom: 13 }}
+          initialViewState={{ center: coord(mapCenter.lat, mapCenter.lng), zoom: 14 }}
+          minZoom={12}
+          maxZoom={18}
+          {...(mapBounds ? { maxBounds: mapBounds } : {})}
         />
         <UserLocation />
 
@@ -648,9 +692,15 @@ export default function WorldScreen() {
         </View>
       )}
 
+      {/* Scan result / status note */}
+      {scanNote && (
+        <View style={styles.noteBar} pointerEvents="none">
+          <Text style={styles.noteTxt}>{scanNote}</Text>
+        </View>
+      )}
+
       {/* Bottom action buttons */}
       <View style={styles.bottomRow}>
-        {/* Scan — primary action, grabs GPS once */}
         <TouchableOpacity
           style={[styles.scanBtn, { borderColor: palette.base, backgroundColor: palette.dim }]}
           onPress={handleScan}
@@ -662,13 +712,13 @@ export default function WorldScreen() {
             : <Text style={[styles.scanTxt, { color: palette.base }]}>◎  SCAN AREA</Text>}
         </TouchableOpacity>
 
-        {/* Claim — only after scan */}
+        {/* Claim — only after scan, shows influence cost */}
         {location && (
           <TouchableOpacity
             style={[styles.claimBtn, { borderColor: COLORS.systemGold, backgroundColor: COLORS.systemGoldDim }]}
             onPress={() => Alert.alert(
               'Claim Territory',
-              `Place a territory here? Costs ◆ ${TERRITORY_PLACE_COST} Influence.`,
+              `Plant your flag here?\nCosts ◆ ${TERRITORY_PLACE_COST} Influence.`,
               [{ text: 'Cancel', style: 'cancel' }, { text: 'Claim', onPress: () => setShowPlace(true) }]
             )}
             disabled={placing}
@@ -676,7 +726,12 @@ export default function WorldScreen() {
           >
             {placing
               ? <ActivityIndicator size="small" color={COLORS.systemGold} />
-              : <Text style={styles.claimTxt}>⚑  CLAIM</Text>}
+              : (
+                <View style={styles.claimInner}>
+                  <Text style={styles.claimTxt}>⚑  CLAIM</Text>
+                  <Text style={styles.claimCost}>◆ {TERRITORY_PLACE_COST}</Text>
+                </View>
+              )}
           </TouchableOpacity>
         )}
       </View>
@@ -734,4 +789,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg, paddingVertical: SPACING.sm, alignItems: 'center',
   },
   claimTxt: { fontFamily: FONTS.display, fontSize: FONT_SIZES.md, color: COLORS.systemGold, letterSpacing: LETTER_SPACING.wide },
+  claimInner: { alignItems: 'center', gap: 2 },
+  claimCost: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.systemGold, opacity: 0.7, letterSpacing: LETTER_SPACING.wide },
+  noteBar: {
+    position: 'absolute', bottom: 96, left: 16, right: 16,
+    backgroundColor: 'rgba(8,11,19,0.88)',
+    borderWidth: BORDER.thin, borderColor: COLORS.borderMid,
+    borderRadius: RADIUS.sm,
+    paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md,
+    alignItems: 'center',
+  },
+  noteTxt: {
+    fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs,
+    color: COLORS.textPrimary, textAlign: 'center', letterSpacing: LETTER_SPACING.wide,
+  },
 })

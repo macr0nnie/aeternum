@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, FortressBuildingKey, FortressCrop, ResourceType } from '@/types'
-import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS } from '@/types'
+import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, FortressBuildingKey, FortressCrop, ResourceType, PlayerTraits, TraitKey } from '@/types'
+import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS, EMPTY_TRAITS } from '@/types'
 import type { PublicPlayer } from '@/lib/supabase'
 
 export interface PartyInvite {
@@ -61,6 +61,9 @@ interface AeternumState {
   // Unlocked skills
   unlockedSkillIds: string[]
 
+  // Behavioral traits (separate from RPG stats — drives archetypes)
+  traits: PlayerTraits
+
   // Actions — auth/player
   setUserId: (id: string | null) => void
   setPlayer: (player: Player) => void
@@ -81,6 +84,12 @@ interface AeternumState {
   setPartyMembers: (members: PublicPlayer[]) => void
   setPartyInvites: (invites: PartyInvite[]) => void
   setLastCoOpResult: (result: CoOpGateResponse | null) => void
+
+  // Actions — bulk hydration (used on login to restore server state)
+  setInventory: (inventory: PlayerInventory) => void
+  setEquipped: (equipped: GearLoadout) => void
+  setCompletedQuestIds: (ids: string[]) => void
+  setClearedDungeonIds: (ids: string[]) => void
 
   // Actions — inventory
   addGearToInventory: (item: GearItem) => void
@@ -108,6 +117,10 @@ interface AeternumState {
   addMyTerritory: (t: Territory) => void
   setNearbyTerritories: (t: Territory[]) => void
   setNearbyNodes: (n: ResourceNode[]) => void
+
+  // Actions — traits
+  addTrait: (key: TraitKey, amount: number) => void
+  setTraits: (traits: PlayerTraits) => void
 
   reset: () => void
 }
@@ -140,6 +153,7 @@ const INITIAL_PERSISTENT = {
   equipped: EMPTY_LOADOUT,
   unlockedTalentIds: [],
   unlockedSkillIds: [],
+  traits: EMPTY_TRAITS,
   resources: EMPTY_RESOURCES,
   fortress: EMPTY_FORTRESS,
 }
@@ -212,6 +226,12 @@ export const useStore = create<AeternumState>()(
       setPartyMembers: (members) => set({ partyMembers: members }),
       setPartyInvites: (invites) => set({ partyInvites: invites }),
       setLastCoOpResult: (result) => set({ lastCoOpResult: result }),
+
+      // Bulk hydration
+      setInventory: (inventory) => set({ inventory }),
+      setEquipped: (equipped) => set({ equipped }),
+      setCompletedQuestIds: (ids) => set({ completedQuestIds: ids }),
+      setClearedDungeonIds: (ids) => set({ clearedDungeonIds: ids }),
 
       // Inventory mutations
       addGearToInventory: (item) => {
@@ -329,6 +349,11 @@ export const useStore = create<AeternumState>()(
       setNearbyTerritories: (t) => set({ nearbyTerritories: t }),
       setNearbyNodes: (n) => set({ nearbyNodes: n }),
 
+      addTrait: (key, amount) => set((s) => ({
+        traits: { ...s.traits, [key]: s.traits[key] + amount },
+      })),
+      setTraits: (traits) => set({ traits }),
+
       reset: () => set({ ...INITIAL_TRANSIENT, ...INITIAL_PERSISTENT }),
     }),
     {
@@ -343,6 +368,7 @@ export const useStore = create<AeternumState>()(
         equipped: state.equipped,
         unlockedTalentIds: state.unlockedTalentIds,
         unlockedSkillIds: state.unlockedSkillIds,
+        traits: state.traits,
         resources: state.resources,
         fortress: state.fortress,
       }),
@@ -374,6 +400,7 @@ export const selectResources = (s: AeternumState) => s.resources
 export const selectFortress = (s: AeternumState) => s.fortress
 export const selectCrops = (s: AeternumState) => s.crops
 export const selectUnlockedSkillIds = (s: AeternumState) => s.unlockedSkillIds
+export const selectTraits = (s: AeternumState) => s.traits
 export const selectMyTerritories = (s: AeternumState) => s.myTerritories
 export const selectNearbyTerritories = (s: AeternumState) => s.nearbyTerritories
 export const selectNearbyNodes = (s: AeternumState) => s.nearbyNodes

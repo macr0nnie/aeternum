@@ -59,26 +59,26 @@ export type Element =
   | 'shadow'
   | 'frost'
   | 'earth'
-  | 'harvest'
-  | 'forge'
-  | 'mending'
+  | 'wind'
+  | 'lightning'
+  | 'holy'
 
 export const ELEMENTS: Element[] = [
   'fire', 'water', 'nature', 'arcane', 'shadow',
-  'frost', 'earth', 'harvest', 'forge', 'mending',
+  'frost', 'earth', 'wind', 'lightning', 'holy',
 ]
 
 export const ELEMENT_LABELS: Record<Element, string> = {
-  fire: 'Fire',
-  water: 'Water',
-  nature: 'Nature',
-  arcane: 'Arcane',
-  shadow: 'Shadow',
-  frost: 'Frost',
-  earth: 'Earth',
-  harvest: 'Harvest',
-  forge: 'Forge',
-  mending: 'Mending',
+  fire:      'Fire',
+  water:     'Water',
+  nature:    'Nature',
+  arcane:    'Arcane',
+  shadow:    'Shadow',
+  frost:     'Frost',
+  earth:     'Earth',
+  wind:      'Wind',
+  lightning: 'Lightning',
+  holy:      'Holy',
 }
 
 // ---------------------------------------------------------------------------
@@ -398,16 +398,17 @@ export const DUNGEON_TIERS: DungeonTier[] = [
 // always happens in an Edge Function.
 
 export const TYPE_MATCHUP_CHART: Record<Element, Record<Element, number>> = {
-  fire:    { fire: 0.5, water: 0.5, nature: 2, arcane: 1, shadow: 1, frost: 2, earth: 1, harvest: 2, forge: 2, mending: 1 },
-  water:   { fire: 2, water: 0.5, nature: 0.5, arcane: 1, shadow: 1, frost: 0.5, earth: 2, harvest: 1, forge: 2, mending: 1 },
-  nature:  { fire: 0.5, water: 2, nature: 0.5, arcane: 1, shadow: 0, frost: 1, earth: 2, harvest: 1, forge: 0.5, mending: 2 },
-  arcane:  { fire: 1, water: 1, nature: 1, arcane: 1, shadow: 2, frost: 1, earth: 0.5, harvest: 0.5, forge: 1, mending: 2 },
-  shadow:  { fire: 1, water: 1, nature: 2, arcane: 0.5, shadow: 0, frost: 1, earth: 1, harvest: 2, forge: 0.5, mending: 0.5 },
-  frost:   { fire: 0.5, water: 0.5, nature: 2, arcane: 1, shadow: 1, frost: 0.5, earth: 1, harvest: 2, forge: 0.5, mending: 1 },
-  earth:   { fire: 1, water: 0.5, nature: 0.5, arcane: 2, shadow: 1, frost: 2, earth: 1, harvest: 1, forge: 2, mending: 0.5 },
-  harvest: { fire: 0.5, water: 1, nature: 1, arcane: 0.5, shadow: 0.5, frost: 1, earth: 1, harvest: 0.5, forge: 0.5, mending: 2 },
-  forge:   { fire: 0.5, water: 0.5, nature: 2, arcane: 1, shadow: 1, frost: 2, earth: 0.5, harvest: 2, forge: 0.5, mending: 1 },
-  mending: { fire: 1, water: 1, nature: 0.5, arcane: 0.5, shadow: 2, frost: 1, earth: 2, harvest: 0.5, forge: 1, mending: 0.5 },
+  //            fire  water nature arcane shadow frost earth  wind  light  holy
+  fire:      { fire:0.5, water:0.5, nature:2,   arcane:1,   shadow:1,   frost:2,   earth:1,   wind:1,   lightning:0.5, holy:1   },
+  water:     { fire:2,   water:0.5, nature:0.5, arcane:1,   shadow:1,   frost:0.5, earth:2,   wind:0.5, lightning:2,   holy:1   },
+  nature:    { fire:0.5, water:2,   nature:0.5, arcane:1,   shadow:0,   frost:1,   earth:2,   wind:1,   lightning:0.5, holy:2   },
+  arcane:    { fire:1,   water:1,   nature:1,   arcane:1,   shadow:2,   frost:1,   earth:0.5, wind:1,   lightning:1,   holy:0.5 },
+  shadow:    { fire:1,   water:1,   nature:2,   arcane:0.5, shadow:0,   frost:1,   earth:1,   wind:1,   lightning:0.5, holy:0   },
+  frost:     { fire:0.5, water:0.5, nature:2,   arcane:1,   shadow:1,   frost:0.5, earth:1,   wind:2,   lightning:0.5, holy:1   },
+  earth:     { fire:1,   water:0.5, nature:0.5, arcane:2,   shadow:1,   frost:2,   earth:1,   wind:0.5, lightning:2,   holy:0.5 },
+  wind:      { fire:1,   water:1,   nature:1,   arcane:0.5, shadow:1,   frost:0.5, earth:2,   wind:0.5, lightning:0.5, holy:1   },
+  lightning: { fire:2,   water:2,   nature:1,   arcane:1,   shadow:1,   frost:2,   earth:0.5, wind:2,   lightning:0.5, holy:1   },
+  holy:      { fire:1,   water:1,   nature:0.5, arcane:0.5, shadow:2,   frost:1,   earth:1,   wind:1,   lightning:1,   holy:0.5 },
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +569,105 @@ export const QUESTS: Quest[] = [
 ]
 
 // ---------------------------------------------------------------------------
+// Dungeon type — determines which traits are rewarded on clear
+// ---------------------------------------------------------------------------
+
+export type DungeonType = 'explorer' | 'conquest' | 'gathering' | 'endurance' | 'general'
+
+export const DUNGEON_TYPE_LABELS: Record<DungeonType, string> = {
+  explorer:  'Explorer',
+  conquest:  'Conquest',
+  gathering: 'Gathering',
+  endurance: 'Endurance',
+  general:   'General',
+}
+
+export const DUNGEON_TYPE_ICONS: Record<DungeonType, string> = {
+  explorer:  '🗺️',
+  conquest:  '🏴',
+  gathering: '⛏️',
+  endurance: '🏃',
+  general:   '⚔️',
+}
+
+// ---------------------------------------------------------------------------
+// Trait system — behavioral fingerprint; separate from combat stats
+// ---------------------------------------------------------------------------
+
+export type TraitKey = 'endurance' | 'strength' | 'exploration' | 'conquest' | 'gathering' | 'consistency' | 'mastery'
+
+export const TRAIT_KEYS: TraitKey[] = ['endurance', 'strength', 'exploration', 'conquest', 'gathering', 'consistency', 'mastery']
+
+export interface PlayerTraits {
+  endurance:   number
+  strength:    number
+  exploration: number
+  conquest:    number
+  gathering:   number
+  consistency: number
+  mastery:     number
+}
+
+export const EMPTY_TRAITS: PlayerTraits = {
+  endurance: 0, strength: 0, exploration: 0,
+  conquest: 0, gathering: 0, consistency: 0, mastery: 0,
+}
+
+export const TRAIT_LABELS: Record<TraitKey, string> = {
+  endurance:   'Endurance',
+  strength:    'Strength',
+  exploration: 'Exploration',
+  conquest:    'Conquest',
+  gathering:   'Gathering',
+  consistency: 'Consistency',
+  mastery:     'Mastery',
+}
+
+export const TRAIT_ICONS: Record<TraitKey, string> = {
+  endurance:   '🏃',
+  strength:    '⚔️',
+  exploration: '🗺️',
+  conquest:    '🏴',
+  gathering:   '⛏️',
+  consistency: '🔥',
+  mastery:     '⭐',
+}
+
+export const TRAIT_SOURCES: Record<TraitKey, string> = {
+  endurance:   'Long runs · Endurance dungeons',
+  strength:    'High-rank dungeons · Conquest dungeons',
+  exploration: 'Scanning map · Claiming territories',
+  conquest:    'Claiming territories · Conquest dungeons',
+  gathering:   'Harvesting resources · Gathering dungeons',
+  consistency: 'Daily runs · Streaks',
+  mastery:     'Repeat dungeon clears · Specialisation',
+}
+
+// ---------------------------------------------------------------------------
+// Archetype system — discovered through behavior, not selected
+// ---------------------------------------------------------------------------
+
+export type ArchetypeId = 'pathfinder' | 'vanguard' | 'quartermaster' | 'sentinel' | 'cartographer'
+
+export interface ArchetypeTierDef {
+  rank: number
+  name: string
+  traitThresholds: Partial<PlayerTraits>
+}
+
+export interface ArchetypeDefinition {
+  id: ArchetypeId
+  primaryTraits: [TraitKey, TraitKey]
+  description: string
+  tiers: ArchetypeTierDef[]
+}
+
+export interface ActiveArchetype {
+  id: ArchetypeId
+  rank: number
+}
+
+// ---------------------------------------------------------------------------
 // Dungeon entries (stat-gated, no active combat — stat-check based)
 // ---------------------------------------------------------------------------
 
@@ -575,10 +675,12 @@ export interface DungeonEntry {
   id: string
   name: string
   rank: 'F' | 'E' | 'D' | 'C' | 'B' | 'A' | 'S'
+  dungeonType: DungeonType
   description: string
   statRequirements: Partial<Stats>
   rewardRarity: Rarity
   statRewards: Partial<Stats>
+  traitRewards: Partial<PlayerTraits>
   flavor: string
   minDistanceKm: number
 }
@@ -588,10 +690,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_awakening',
     name: 'The Awakening Chamber',
     rank: 'F',
+    dungeonType: 'general',
     description: 'A crumbling ruin pulsing with residual mana. Entry-level gate.',
     statRequirements: {},
     rewardRarity: 'common',
     statRewards: { ATK: 1, END: 1 },
+    traitRewards: { strength: 1 },
     flavor: 'Every hunter remembers their first gate.',
     minDistanceKm: 0,
   },
@@ -599,10 +703,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_goblin',
     name: "Goblin's Warren",
     rank: 'E',
+    dungeonType: 'conquest',
     description: 'Tunnels overrun by low-rank monsters.',
     statRequirements: { ATK: 3 },
     rewardRarity: 'common',
     statRewards: { ATK: 2, SPD: 1 },
+    traitRewards: { conquest: 3, strength: 2 },
     flavor: 'Weak alone. Dangerous in swarms.',
     minDistanceKm: 2,
   },
@@ -610,10 +716,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_catacombs',
     name: 'Crumbling Catacombs',
     rank: 'E',
+    dungeonType: 'endurance',
     description: 'Ancient burial ground. The dead do not rest here.',
     statRequirements: { END: 5 },
     rewardRarity: 'common',
     statRewards: { END: 2, DEF: 1 },
+    traitRewards: { endurance: 4, consistency: 1 },
     flavor: 'Survival, not strength, is the key.',
     minDistanceKm: 2,
   },
@@ -621,10 +729,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_crystal',
     name: 'Crystal Caverns',
     rank: 'D',
+    dungeonType: 'gathering',
     description: 'Labyrinthine caves where mana crystallises into monsters.',
     statRequirements: { ATK: 8, DEF: 5 },
     rewardRarity: 'uncommon',
     statRewards: { ATK: 3, INT: 2 },
+    traitRewards: { gathering: 4, mastery: 2 },
     flavor: 'Light bends strangely underground.',
     minDistanceKm: 5,
   },
@@ -632,10 +742,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_storm',
     name: 'Storm Gauntlet',
     rank: 'D',
+    dungeonType: 'endurance',
     description: 'A sky gate. Constant lightning. Speed is the only defence.',
     statRequirements: { SPD: 8, END: 8 },
     rewardRarity: 'uncommon',
     statRewards: { SPD: 3, END: 2 },
+    traitRewards: { endurance: 5, strength: 2 },
     flavor: 'The storm does not care about your rank.',
     minDistanceKm: 5,
   },
@@ -643,10 +755,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_shadow',
     name: 'Shadow Sanctum',
     rank: 'C',
+    dungeonType: 'explorer',
     description: 'A void gate where light itself has been consumed.',
     statRequirements: { ATK: 15, INT: 10 },
     rewardRarity: 'rare',
     statRewards: { ATK: 4, INT: 3 },
+    traitRewards: { exploration: 4, mastery: 3 },
     flavor: 'You cannot fight what you cannot see.',
     minDistanceKm: 10,
   },
@@ -654,10 +768,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_fortress',
     name: 'Iron Fortress',
     rank: 'C',
+    dungeonType: 'conquest',
     description: 'A military installation overrun by armored constructs.',
     statRequirements: { DEF: 15, END: 12 },
     rewardRarity: 'rare',
     statRewards: { DEF: 4, END: 3 },
+    traitRewards: { conquest: 5, strength: 3 },
     flavor: 'The walls do not bleed. You might.',
     minDistanceKm: 10,
   },
@@ -665,10 +781,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_abyss',
     name: 'Abyssal Rift',
     rank: 'B',
+    dungeonType: 'conquest',
     description: 'A tear in reality. The strongest monsters live here.',
     statRequirements: { ATK: 20, SPD: 15, INT: 15 },
     rewardRarity: 'rare',
     statRewards: { ATK: 5, SPD: 3, INT: 3 },
+    traitRewards: { conquest: 7, strength: 5, mastery: 2 },
     flavor: 'Beyond the rift, the rules change.',
     minDistanceKm: 20,
   },
@@ -676,10 +794,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_dragon',
     name: "Dragon's Throne",
     rank: 'A',
-    description: 'An ancient dragon\'s domain. Pure power. No shortcuts.',
+    dungeonType: 'conquest',
+    description: "An ancient dragon's domain. Pure power. No shortcuts.",
     statRequirements: { ATK: 25, DEF: 20, END: 20, SPD: 15, INT: 15 },
     rewardRarity: 'rare',
     statRewards: { ATK: 5, DEF: 4, END: 4, SPD: 3, INT: 3 },
+    traitRewards: { strength: 8, conquest: 5, mastery: 3, endurance: 2 },
     flavor: 'Dragons do not negotiate.',
     minDistanceKm: 50,
   },
@@ -687,10 +807,12 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     id: 'd_sovereign',
     name: "Sovereign's Gate",
     rank: 'S',
+    dungeonType: 'general',
     description: 'The apex dungeon. Only the sovereign-ranked survive.',
     statRequirements: { ATK: 40, DEF: 35, END: 35, SPD: 30, INT: 30, LCK: 20, CHA: 20, PER: 20 },
     rewardRarity: 'legendary',
     statRewards: { ATK: 10, DEF: 8, END: 8, SPD: 6, INT: 6, LCK: 4, CHA: 4, PER: 4 },
+    traitRewards: { mastery: 10, strength: 7, conquest: 5, endurance: 5 },
     flavor: 'Here. The end of all things. The beginning of another.',
     minDistanceKm: 100,
   },
@@ -791,6 +913,20 @@ export const EMPTY_RESOURCES: PlayerResources = {
 export type SkillKind = 'player' | 'base'
 export type SkillActivation = 'active' | 'passive'
 
+// Shared element emoji map — single source of truth used across all screens
+export const ELEMENT_EMOJI: Record<Element, string> = {
+  fire:      '🔥',
+  water:     '💧',
+  nature:    '🌿',
+  arcane:    '🔮',
+  shadow:    '🌑',
+  frost:     '❄️',
+  earth:     '⛰️',
+  wind:      '🌪️',
+  lightning: '⚡',
+  holy:      '✨',
+}
+
 export interface PlayerSkill {
   id: string
   name: string
@@ -802,26 +938,30 @@ export interface PlayerSkill {
   rarity: Rarity
   flavor: string
   icon: string
+  manaCost?: number    // active skills only — deducted from mana resource on use
+  staminaCost?: number // optional stamina cost (future)
 }
 
+// Player skills — unlocked through runs, dungeons, rewards
 export const PLAYER_SKILLS: PlayerSkill[] = [
-  { id: 'sk_shadow_step',     name: 'Shadow Step',          kind: 'player', activation: 'active',  element: 'shadow',  description: 'Dash through shadows instantly.',           effect: '+15% SPD for next dungeon',         rarity: 'uncommon', flavor: 'Between blinks, I was gone.',              icon: '🌑' },
-  { id: 'sk_iron_skin',       name: 'Iron Skin',            kind: 'player', activation: 'passive', element: 'forge',   description: 'Harden your body against physical hits.',   effect: '+10 DEF permanently',               rarity: 'common',   flavor: 'Hammered by miles, hardened by will.',     icon: '🛡' },
-  { id: 'sk_flame_strike',    name: 'Flame Strike',         kind: 'player', activation: 'active',  element: 'fire',    description: 'Ignite your weapon with mana fire.',        effect: '+20% ATK vs frost/nature gates',    rarity: 'rare',     flavor: 'Everything burns if you run hot enough.',  icon: '🔥' },
-  { id: 'sk_arcane_insight',  name: 'Arcane Insight',       kind: 'player', activation: 'passive', element: 'arcane',  description: 'Read the gate before entering.',           effect: '+5% win probability on all gates', rarity: 'uncommon', flavor: 'Knowledge is the sharpest weapon.',        icon: '🔮' },
-  { id: 'sk_wind_dash',       name: 'Wind Dash',            kind: 'player', activation: 'active',  element: null,      description: 'Burst of pure speed.',                      effect: '+20% SPD this run',                 rarity: 'common',   flavor: 'The wind does not wait.',                  icon: '💨' },
-  { id: 'sk_mending_aura',    name: 'Mending Aura',         kind: 'player', activation: 'passive', element: 'mending', description: 'Slowly recover stats after gate defeat.',   effect: 'Recover 50% stat loss after loss',  rarity: 'rare',     flavor: 'Wounds are lessons. Heal them quickly.',   icon: '✨' },
-  { id: 'sk_void_sight',      name: 'Void Sight',           kind: 'player', activation: 'passive', element: 'shadow',  description: 'See through darkness and illusions.',       effect: '+10 PER permanently',               rarity: 'rare',     flavor: 'The void reveals all truths.',             icon: '👁' },
-  { id: 'sk_battle_cry',      name: 'Battle Cry',           kind: 'player', activation: 'active',  element: null,      description: 'Rally the party before a gate.',           effect: '+15% all stats for co-op gates',   rarity: 'uncommon', flavor: 'One voice can move an army.',              icon: '⚔' },
+  { id: 'sk_shadow_step',    name: 'Shadow Step',     kind: 'player', activation: 'active',  element: 'shadow',    manaCost: 30, description: 'Dash through shadows instantly.',         effect: '+15% SPD for next gate',            rarity: 'uncommon', flavor: 'Between blinks, I was gone.',              icon: '🌑' },
+  { id: 'sk_iron_skin',      name: 'Iron Skin',       kind: 'player', activation: 'passive', element: 'earth',                  description: 'Harden your body against physical hits.', effect: '+10 DEF permanently',               rarity: 'common',   flavor: 'Hammered by miles, hardened by will.',     icon: '🛡️' },
+  { id: 'sk_flame_strike',   name: 'Flame Strike',    kind: 'player', activation: 'active',  element: 'fire',      manaCost: 45, description: 'Ignite your weapon with mana fire.',      effect: '+20% ATK vs frost/nature gates',    rarity: 'rare',     flavor: 'Everything burns if you run hot enough.',  icon: '🔥' },
+  { id: 'sk_arcane_insight', name: 'Arcane Insight',  kind: 'player', activation: 'passive', element: 'arcane',                 description: 'Read the gate before entering.',          effect: '+5% win probability on all gates',  rarity: 'uncommon', flavor: 'Knowledge is the sharpest weapon.',        icon: '🔮' },
+  { id: 'sk_wind_dash',      name: 'Wind Dash',       kind: 'player', activation: 'active',  element: 'wind',      manaCost: 20, description: 'Burst of pure speed.',                    effect: '+20% SPD this run',                 rarity: 'common',   flavor: 'The wind does not wait.',                  icon: '🌪️' },
+  { id: 'sk_holy_mend',      name: 'Holy Mending',    kind: 'player', activation: 'passive', element: 'holy',                   description: 'Recover stats after gate defeat.',        effect: 'Recover 50% stat loss after loss',  rarity: 'rare',     flavor: 'Light heals what darkness breaks.',        icon: '✨' },
+  { id: 'sk_void_sight',     name: 'Void Sight',      kind: 'player', activation: 'passive', element: 'shadow',                 description: 'See through darkness and illusions.',     effect: '+10 PER permanently',               rarity: 'rare',     flavor: 'The void reveals all truths.',             icon: '👁️' },
+  { id: 'sk_battle_cry',     name: 'Battle Cry',      kind: 'player', activation: 'active',  element: null,        manaCost: 35, description: 'Rally the party before a gate.',          effect: '+15% all stats for co-op gates',    rarity: 'uncommon', flavor: 'One voice can move an army.',              icon: '⚔️' },
 ]
 
+// Base skills — equipped to fortress defense slots
 export const BASE_SKILLS: PlayerSkill[] = [
-  { id: 'bsk_iron_golem',     name: 'Iron Golem',           kind: 'base',   activation: 'passive', element: 'forge',   description: 'A construct that guards your territory.',   effect: '+20 DEF to fortress',               rarity: 'common',   flavor: 'Stone and steel do not sleep.',            icon: '🗿' },
-  { id: 'bsk_life_seed',      name: 'Life Rejuvenation Seed', kind: 'base', activation: 'passive', element: 'mending', description: 'Slowly heals the base after attacks.',     effect: 'Restore 10 DEF/day passively',      rarity: 'uncommon', flavor: 'Where there is growth, there is survival.', icon: '🌱' },
-  { id: 'bsk_shadow_ward',    name: 'Shadow Ward',          kind: 'base',   activation: 'passive', element: 'shadow',  description: 'Obscures your territory from detection.',  effect: '-25% chance to be targeted',        rarity: 'rare',     flavor: 'The best defence is invisibility.',        icon: '🌑' },
-  { id: 'bsk_frost_barrier',  name: 'Frost Barrier',        kind: 'base',   activation: 'active',  element: 'frost',   description: 'Slows enemy attackers on contact.',        effect: '-20% attacker SPD in PvP',          rarity: 'uncommon', flavor: 'Cold stone is still stone.',               icon: '❄' },
-  { id: 'bsk_arcane_shield',  name: 'Arcane Shield',        kind: 'base',   activation: 'passive', element: 'arcane',  description: 'Magical barrier that absorbs first hit.',  effect: 'Absorb 1 attack per 24h',           rarity: 'rare',     flavor: 'Magic endures where walls crumble.',       icon: '🔵' },
-  { id: 'bsk_fire_trap',      name: 'Fire Trap',            kind: 'base',   activation: 'active',  element: 'fire',    description: 'Burns attackers who breach the perimeter.', effect: 'Deal 15% ATK back to attacker',    rarity: 'uncommon', flavor: 'Step on the flame. See what happens.',     icon: '🔥' },
+  { id: 'bsk_iron_golem',    name: 'Iron Golem',      kind: 'base', activation: 'passive', element: 'earth',     description: 'A construct that guards your territory.',    effect: '+20 DEF to fortress',               rarity: 'common',   flavor: 'Stone and steel do not sleep.',             icon: '🗿' },
+  { id: 'bsk_holy_ward',     name: 'Holy Ward',       kind: 'base', activation: 'passive', element: 'holy',      description: 'Sacred barrier that heals the base.',        effect: 'Restore 10 DEF/day passively',      rarity: 'uncommon', flavor: 'Where light falls, darkness cannot hold.',  icon: '✨' },
+  { id: 'bsk_shadow_ward',   name: 'Shadow Ward',     kind: 'base', activation: 'passive', element: 'shadow',    description: 'Obscures your territory from detection.',   effect: '-25% chance to be targeted',        rarity: 'rare',     flavor: 'The best defence is invisibility.',         icon: '🌑' },
+  { id: 'bsk_frost_barrier', name: 'Frost Barrier',   kind: 'base', activation: 'active',  element: 'frost',     manaCost: 25, description: 'Slows enemy attackers on contact.',   effect: '-20% attacker SPD in PvP',          rarity: 'uncommon', flavor: 'Cold stone is still stone.',                icon: '❄️' },
+  { id: 'bsk_arcane_shield', name: 'Arcane Shield',   kind: 'base', activation: 'passive', element: 'arcane',    description: 'Magical barrier that absorbs first hit.',   effect: 'Absorb 1 attack per 24h',           rarity: 'rare',     flavor: 'Magic endures where walls crumble.',        icon: '🔵' },
+  { id: 'bsk_fire_trap',     name: 'Fire Trap',       kind: 'base', activation: 'active',  element: 'fire',      manaCost: 30, description: 'Burns attackers who breach the perimeter.', effect: 'Deal 15% ATK back to attacker', rarity: 'uncommon', flavor: 'Step on the flame. See what happens.',      icon: '🔥' },
 ]
 
 export const ALL_SKILLS: PlayerSkill[] = [...PLAYER_SKILLS, ...BASE_SKILLS]

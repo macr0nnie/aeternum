@@ -1,6 +1,6 @@
 // =============================================================================
 // Aeternum — Hunter Screen
-// Unified view: Stats · Loadout · Bag · Forge/Brew
+// Unified scroll: Stats · Loadout · Skills · Bag  |  Craft (toggle)
 // =============================================================================
 import { useState } from 'react'
 import {
@@ -17,14 +17,28 @@ import {
   LETTER_SPACING, elementAccent, rarityColor,
 } from '@/theme/tokens'
 import { CRAFT_RECIPES, findMaterialById, findConsumableById, findGearById } from '@/data/items'
+import {
+  detectAllArchetypes, getNextTier, getArchetypeDef,
+} from '@/data/archetypes'
 import type { GearItem, Relic, GearLoadout, CraftRecipe, RecipeCategory, Element } from '@/types'
-import { STAT_KEYS, STAT_SOURCES, ELEMENT_LABELS } from '@/types'
+import {
+  STAT_KEYS, STAT_SOURCES, ELEMENT_LABELS, ELEMENT_EMOJI,
+  TRAIT_KEYS, TRAIT_LABELS, TRAIT_ICONS,
+  PLAYER_SKILLS, type PlayerSkill, type TraitKey,
+} from '@/types'
+import { selectResources, selectUnlockedSkillIds, selectTraits } from '@/store/useStore'
+
+const ARCHETYPE_ICONS: Record<string, string> = {
+  pathfinder:    '🏔',
+  vanguard:      '⚔️',
+  quartermaster: '📦',
+  sentinel:      '🛡️',
+  cartographer:  '🗺️',
+}
 
 // =============================================================================
 // Shared helpers
 // =============================================================================
-
-type Tab = 'stats' | 'loadout' | 'bag' | 'craft'
 
 function canCraft(recipe: CraftRecipe, materials: Record<string, number>, consumables: Record<string, number>): boolean {
   return recipe.ingredients.every(ing => (materials[ing.itemId] ?? consumables[ing.itemId] ?? 0) >= ing.quantity)
@@ -47,17 +61,6 @@ function gearStatDiff(equipped: GearLoadout, candidate: GearItem): Array<{ key: 
     delta: ((candidate.statBonuses as Record<string, number>)[k] ?? 0) - ((current?.statBonuses as Record<string, number> | undefined)?.[k] ?? 0),
   }))
 }
-
-// =============================================================================
-// Tab bar
-// =============================================================================
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'stats',   label: 'STATS'   },
-  { key: 'loadout', label: 'LOADOUT' },
-  { key: 'bag',     label: 'BAG'     },
-  { key: 'craft',   label: 'CRAFT'   },
-]
 
 // =============================================================================
 // Gear pick modal
@@ -238,6 +241,13 @@ export default function HunterScreen() {
   const player = useStore(selectPlayer)
   const inventory = useStore(selectInventory)
   const equipped = useStore(selectEquipped)
+  const resources = useStore(selectResources)
+  const unlockedSkillIds = useStore(selectUnlockedSkillIds)
+  const traits = useStore(selectTraits)
+  const { spendResources } = useStore()
+
+  const activeArchetypes = detectAllArchetypes(traits)
+  const primaryArchetype = activeArchetypes[0] ?? null
   const equipGear = useStore(s => s.equipGear)
   const unequipGear = useStore(s => s.unequipGear)
   const equipRelic = useStore(s => s.equipRelic)
@@ -246,7 +256,7 @@ export default function HunterScreen() {
   const addConsumable = useStore(s => s.addConsumable)
   const addMaterial = useStore(s => s.addMaterial)
 
-  const [tab, setTab] = useState<Tab>('stats')
+  const [showCraft, setShowCraft] = useState(false)
   const [gearSlot, setGearSlot] = useState<keyof GearLoadout | null>(null)
   const [craftTab, setCraftTab] = useState<RecipeCategory>('forge')
   const [lastCrafted, setLastCrafted] = useState<CraftRecipe | null>(null)
@@ -303,28 +313,94 @@ export default function HunterScreen() {
             </Text>
           </View>
         </View>
-        <Text style={styles.distance}>{(player?.total_distance_km ?? 0).toFixed(1)} km</Text>
-      </View>
-
-      {/* Tab bar */}
-      <View style={styles.tabBar}>
-        {TABS.map(t => (
+        <View style={styles.headerRight}>
+          <Text style={styles.distance}>{(player?.total_distance_km ?? 0).toFixed(1)} km</Text>
           <TouchableOpacity
-            key={t.key}
-            style={[styles.tabBtn, tab === t.key && { borderBottomColor: palette.base, borderBottomWidth: 2 }]}
-            onPress={() => setTab(t.key)}
+            style={[styles.craftToggleBtn, showCraft && styles.craftToggleBtnActive]}
+            onPress={() => setShowCraft(s => !s)}
             activeOpacity={0.75}
           >
-            <Text style={[styles.tabLabel, tab === t.key && { color: palette.base }]}>{t.label}</Text>
+            <Text style={[styles.craftToggleTxt, showCraft && styles.craftToggleTxtActive]}>
+              {showCraft ? '← PROFILE' : '⚔ CRAFT'}
+            </Text>
           </TouchableOpacity>
-        ))}
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        {/* ── STATS ── */}
-        {tab === 'stats' && (
+        {!showCraft ? (
           <>
+            {/* ── IDENTITY ── */}
+            <SectionHeader title="IDENTITY" />
+            {primaryArchetype ? (() => {
+              const def = getArchetypeDef(primaryArchetype.id)
+              const tierName = def?.tiers.find(t => t.rank === primaryArchetype.rank)?.name ?? primaryArchetype.id
+              const nextTier = getNextTier(primaryArchetype.id, primaryArchetype.rank)
+              return (
+                <View style={identity.card}>
+                  <View style={identity.cardHeader}>
+                    <Text style={identity.archIcon}>{ARCHETYPE_ICONS[primaryArchetype.id] ?? '◆'}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[identity.tierName, { color: palette.bright }]}>{tierName.toUpperCase()}</Text>
+                      <Text style={identity.tierRank}>TIER {primaryArchetype.rank} / 5</Text>
+                    </View>
+                    {activeArchetypes.length > 1 && (
+                      <View style={identity.multiTag}>
+                        <Text style={identity.multiTagTxt}>+{activeArchetypes.length - 1} MORE</Text>
+                      </View>
+                    )}
+                  </View>
+                  {def && <Text style={identity.desc}>{def.description}</Text>}
+                  {nextTier && (
+                    <View style={identity.nextBlock}>
+                      <Text style={identity.nextLabel}>NEXT: {nextTier.name.toUpperCase()}</Text>
+                      {(Object.entries(nextTier.traitThresholds) as [string, number][]).map(([k, needed]) => {
+                        const have = traits[k as TraitKey] ?? 0
+                        const pct = Math.min(1, have / needed)
+                        return (
+                          <View key={k} style={identity.progressRow}>
+                            <Text style={identity.progressLabel}>{TRAIT_ICONS[k as keyof typeof TRAIT_ICONS]} {TRAIT_LABELS[k as keyof typeof TRAIT_LABELS]} {have}/{needed}</Text>
+                            <View style={identity.progressTrack}>
+                              <View style={[identity.progressFill, { width: `${pct * 100}%` as `${number}%`, backgroundColor: palette.base }]} />
+                            </View>
+                          </View>
+                        )
+                      })}
+                    </View>
+                  )}
+                  {!nextTier && primaryArchetype.rank === 5 && (
+                    <Text style={[identity.nextLabel, { color: palette.bright, marginTop: SPACING.xs }]}>◆ MAX TIER REACHED ◆</Text>
+                  )}
+                </View>
+              )
+            })() : null}
+
+            <Spacer size="xs" />
+
+            {/* ── TRAITS ── */}
+            <SectionHeader title="BEHAVIORAL TRAITS" />
+            <View style={identity.traitGrid}>
+              {TRAIT_KEYS.map(k => {
+                const val = traits[k] ?? 0
+                const active = val > 0
+                return (
+                  <View key={k} style={[identity.traitChip, active && { borderColor: palette.base + '60', backgroundColor: palette.dim }]}>
+                    <Text style={identity.traitIcon}>{TRAIT_ICONS[k]}</Text>
+                    <Text style={[identity.traitName, { color: active ? palette.bright : COLORS.textTertiary }]}>
+                      {TRAIT_LABELS[k].toUpperCase()}
+                    </Text>
+                    <Text style={[identity.traitVal, { color: active ? palette.base : COLORS.textTertiary }]}>
+                      {val}
+                    </Text>
+                  </View>
+                )
+              })}
+            </View>
+
+            <Spacer size="sm" />
+
+            {/* ── STATS ── */}
             <SystemWindow title="HUNTER STATUS">
               {STAT_KEYS.map(k => (
                 <View key={k}>
@@ -340,12 +416,10 @@ export default function HunterScreen() {
                 </Text>
               </View>
             </SystemWindow>
-          </>
-        )}
 
-        {/* ── LOADOUT ── */}
-        {tab === 'loadout' && (
-          <>
+            <Spacer size="sm" />
+
+            {/* ── LOADOUT ── */}
             <SectionHeader title="EQUIPPED GEAR" />
             <View style={styles.slotGrid}>
               {(['weapon', 'armor', 'ring', 'relic'] as const).map(slot => {
@@ -378,13 +452,79 @@ export default function HunterScreen() {
                 )
               })}
             </View>
-          </>
-        )}
 
-        {/* ── BAG ── */}
-        {tab === 'bag' && (
-          <>
-            {/* Gear */}
+            <Spacer size="sm" />
+
+            {/* ── SKILLS ── */}
+            <SectionHeader title="SKILLS" />
+            <View style={styles.skillsManaRow}>
+              <Text style={styles.skillsManaLabel}>💧 MANA</Text>
+              <Text style={styles.skillsManaVal}>{resources.mana}</Text>
+            </View>
+            <Spacer size="xs" />
+            {PLAYER_SKILLS.filter(s => unlockedSkillIds.includes(s.id)).map((skill: PlayerSkill) => {
+              const elColor = skill.element
+                ? elementAccent(skill.element as Element).base
+                : COLORS.textTertiary
+              const isActive = skill.activation === 'active'
+              const canUse = isActive && (skill.manaCost ?? 0) <= resources.mana
+              return (
+                <View
+                  key={skill.id}
+                  style={[
+                    styles.skillCard,
+                    { borderColor: elColor + '80' },
+                    isActive && { backgroundColor: elColor + '0d' },
+                  ]}
+                >
+                  <View style={[styles.skillStripe, { backgroundColor: isActive ? elColor : COLORS.borderMid }]} />
+                  <View style={styles.skillBody}>
+                    <View style={styles.skillHeader}>
+                      <Text style={styles.skillIcon}>{skill.icon}</Text>
+                      <View style={styles.skillTitleGroup}>
+                        <Text style={[styles.skillName, { color: elColor }]}>{skill.name}</Text>
+                        <View style={styles.skillBadgeRow}>
+                          <View style={[styles.actBadge, {
+                            borderColor: isActive ? elColor : COLORS.borderMid,
+                            backgroundColor: isActive ? elColor + '20' : COLORS.surfaceHigh,
+                          }]}>
+                            <Text style={[styles.actBadgeTxt, { color: isActive ? elColor : COLORS.textTertiary }]}>
+                              {isActive ? '▶ ACTIVE' : '◈ PASSIVE'}
+                            </Text>
+                          </View>
+                          {skill.element && (
+                            <View style={[styles.elBadge, { borderColor: elColor + '60' }]}>
+                              <Text style={styles.elBadgeTxt}>
+                                {ELEMENT_EMOJI[skill.element as Element]} {ELEMENT_LABELS[skill.element as Element].toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                    <Text style={styles.skillDesc}>{skill.description}</Text>
+                    <Text style={[styles.skillEffect, { color: COLORS.success }]}>{skill.effect}</Text>
+                    {isActive && (
+                      <View style={styles.skillFooter}>
+                        <Text style={styles.skillManaCost}>💧 {skill.manaCost ?? 0} mana</Text>
+                        <TouchableOpacity
+                          style={[styles.useBtn, !canUse && { opacity: 0.4 }]}
+                          disabled={!canUse}
+                          onPress={() => { if (canUse) spendResources({ mana: skill.manaCost ?? 0 }) }}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={styles.useBtnTxt}>▶ USE</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )
+            })}
+
+            <Spacer size="sm" />
+
+            {/* ── BAG ── */}
             <SectionHeader title="GEAR" />
             {inventory.gear.length === 0 ? (
               <Text style={styles.emptyNote}>No gear yet. Clear gates to earn drops.</Text>
@@ -409,7 +549,6 @@ export default function HunterScreen() {
               </CornerPanel>
             )}
 
-            {/* Relics */}
             {inventory.relics.length > 0 && (
               <>
                 <SectionHeader title="RELICS" />
@@ -426,7 +565,6 @@ export default function HunterScreen() {
               </>
             )}
 
-            {/* Materials */}
             {Object.keys(inventory.materials).length > 0 && (
               <>
                 <SectionHeader title="MATERIALS" />
@@ -443,7 +581,6 @@ export default function HunterScreen() {
               </>
             )}
 
-            {/* Consumables */}
             {Object.keys(inventory.consumables).length > 0 && (
               <>
                 <SectionHeader title="CONSUMABLES" />
@@ -464,12 +601,9 @@ export default function HunterScreen() {
               <Text style={styles.emptyNote}>Your bag is empty. Clear gates to earn loot and materials.</Text>
             )}
           </>
-        )}
-
-        {/* ── CRAFT ── */}
-        {tab === 'craft' && (
+        ) : (
           <>
-            {/* Craft sub-tabs */}
+            {/* ── CRAFT ── */}
             <View style={styles.craftTabs}>
               {(['forge', 'brew'] as RecipeCategory[]).map(ct => (
                 <TouchableOpacity
@@ -485,7 +619,6 @@ export default function HunterScreen() {
               ))}
             </View>
 
-            {/* Materials summary */}
             {Object.keys(inventory.materials).length > 0 && (
               <View style={styles.chipGrid}>
                 {Object.entries(inventory.materials).filter(([, q]) => q > 0).map(([id, qty]) => (
@@ -526,6 +659,44 @@ export default function HunterScreen() {
 // Styles
 // =============================================================================
 
+const identity = StyleSheet.create({
+  card: {
+    backgroundColor: COLORS.surface, borderWidth: BORDER.thin, borderColor: COLORS.borderMid,
+    borderRadius: RADIUS.slight, padding: SPACING.md, marginBottom: SPACING.sm,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginBottom: SPACING.xs },
+  archIcon: { fontSize: 28, width: 36, textAlign: 'center' },
+  tierName: { fontFamily: FONTS.heading, fontSize: FONT_SIZES.md, letterSpacing: LETTER_SPACING.normal },
+  tierRank: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textTertiary, marginTop: 2 },
+  multiTag: {
+    borderWidth: BORDER.thin, borderColor: COLORS.borderMid, borderRadius: RADIUS.sharp,
+    paddingHorizontal: SPACING.sm, paddingVertical: 2,
+  },
+  multiTagTxt: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textSecondary, letterSpacing: LETTER_SPACING.wide },
+  desc: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, lineHeight: 17, marginBottom: SPACING.sm },
+  nextBlock: { gap: SPACING.xs, paddingTop: SPACING.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.borderLow },
+  nextLabel: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide },
+  progressRow: { gap: 4 },
+  progressLabel: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
+  progressTrack: { height: 4, backgroundColor: COLORS.surfaceHigh, borderRadius: 2, overflow: 'hidden' },
+  progressFill: { height: 4, borderRadius: 2 },
+  emptyCard: {
+    backgroundColor: COLORS.surface, borderWidth: BORDER.thin, borderColor: COLORS.borderLow,
+    borderRadius: RADIUS.slight, padding: SPACING.md, alignItems: 'center', marginBottom: SPACING.sm,
+  },
+  emptyTitle: { fontFamily: FONTS.display, fontSize: FONT_SIZES.sm, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide, marginBottom: SPACING.xs },
+  emptyDesc: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textTertiary, textAlign: 'center', lineHeight: 17 },
+  traitGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
+  traitChip: {
+    width: '31%', backgroundColor: COLORS.surface, borderWidth: BORDER.thin,
+    borderColor: COLORS.borderLow, borderRadius: RADIUS.slight,
+    padding: SPACING.sm, alignItems: 'center', gap: 2,
+  },
+  traitIcon: { fontSize: 18 },
+  traitName: { fontFamily: FONTS.mono, fontSize: 8, letterSpacing: LETTER_SPACING.wide, textAlign: 'center' },
+  traitVal: { fontFamily: FONTS.display, fontSize: FONT_SIZES.md, fontWeight: '700' },
+})
+
 const craft = StyleSheet.create({
   resultName: { fontFamily: FONTS.heading, fontSize: FONT_SIZES.lg, color: COLORS.systemGold, textAlign: 'center', marginBottom: 4 },
   resultQty: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.sm, color: COLORS.textSecondary, textAlign: 'center', marginBottom: 4 },
@@ -542,14 +713,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: BORDER.thin, borderBottomColor: COLORS.borderLow,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  headerRight: { alignItems: 'flex-end', gap: SPACING.xs },
   username: { fontFamily: FONTS.heading, fontSize: FONT_SIZES.md, color: COLORS.textPrimary },
   element: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, marginTop: 2 },
   distance: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.sm, color: COLORS.textSecondary },
-
-  // Tabs
-  tabBar: { flexDirection: 'row', borderBottomWidth: BORDER.thin, borderBottomColor: COLORS.borderLow },
-  tabBtn: { flex: 1, paddingVertical: SPACING.sm, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  tabLabel: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide },
+  craftToggleBtn: {
+    borderWidth: BORDER.thin, borderColor: COLORS.borderMid, borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm, paddingVertical: 3,
+  },
+  craftToggleBtnActive: { borderColor: COLORS.systemGold, backgroundColor: COLORS.systemGoldDim },
+  craftToggleTxt: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, letterSpacing: LETTER_SPACING.wide },
+  craftToggleTxtActive: { color: COLORS.systemGold },
 
   scroll: { paddingHorizontal: SPACING.md, paddingTop: SPACING.md },
 
@@ -588,6 +762,52 @@ const styles = StyleSheet.create({
   matName: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
   matQty: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.systemGold, fontWeight: '700' },
   emptyNote: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textTertiary, textAlign: 'center', marginVertical: SPACING.md, fontStyle: 'italic' },
+
+  // Skills
+  skillsManaRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: COLORS.surface, borderWidth: BORDER.thin, borderColor: '#60a5fa40',
+    borderRadius: RADIUS.slight, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs,
+  },
+  skillsManaLabel: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: '#60a5fa', letterSpacing: LETTER_SPACING.wide },
+  skillsManaVal: { fontFamily: FONTS.display, fontSize: FONT_SIZES.md, color: '#60a5fa' },
+  skillCard: {
+    flexDirection: 'row', backgroundColor: COLORS.surface,
+    borderWidth: BORDER.thin, borderRadius: RADIUS.slight,
+    marginBottom: SPACING.sm, overflow: 'hidden',
+  },
+  skillStripe: { width: 4 },
+  skillBody: { flex: 1, padding: SPACING.sm, gap: 4 },
+  skillHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: SPACING.sm },
+  skillIcon: { fontSize: 28, width: 36, textAlign: 'center' },
+  skillTitleGroup: { flex: 1, gap: 4 },
+  skillName: { fontFamily: FONTS.display, fontSize: FONT_SIZES.sm, letterSpacing: LETTER_SPACING.normal },
+  skillBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
+  actBadge: {
+    borderWidth: 1, borderRadius: RADIUS.sharp,
+    paddingHorizontal: 6, paddingVertical: 2,
+  },
+  actBadgeTxt: { fontFamily: FONTS.mono, fontSize: 9, letterSpacing: LETTER_SPACING.wide },
+  elBadge: {
+    borderWidth: 1, borderRadius: RADIUS.sharp,
+    paddingHorizontal: 5, paddingVertical: 2,
+    backgroundColor: 'transparent',
+  },
+  elBadgeTxt: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textSecondary },
+  lockedBadge: {
+    borderWidth: 1, borderColor: COLORS.borderMid, borderRadius: RADIUS.sharp,
+    paddingHorizontal: 5, paddingVertical: 2, backgroundColor: COLORS.surfaceHigh,
+  },
+  lockedTxt: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide },
+  skillDesc: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, lineHeight: 16 },
+  skillEffect: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xs, letterSpacing: LETTER_SPACING.normal },
+  skillFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  skillManaCost: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: '#60a5fa' },
+  useBtn: {
+    backgroundColor: '#1e3a5f', borderWidth: BORDER.thin, borderColor: '#60a5fa',
+    borderRadius: RADIUS.sharp, paddingHorizontal: SPACING.md, paddingVertical: 4,
+  },
+  useBtnTxt: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xs, color: '#60a5fa', letterSpacing: LETTER_SPACING.wide },
 
   // Craft sub-tabs
   craftTabs: { flexDirection: 'row', gap: SPACING.sm, marginBottom: SPACING.md },

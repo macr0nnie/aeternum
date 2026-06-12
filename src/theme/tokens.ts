@@ -122,21 +122,21 @@ export const ELEMENT_PALETTES: Record<Element, ElementPalette> = {
     mid: '#78350f',
     border: 'rgba(217,119,6,0.25)',
   },
-  harvest: {
+  wind: {
     base: '#a3e635',
     bright: '#d9f99d',
     dim: '#1a2e05',
     mid: '#365314',
     border: 'rgba(163,230,53,0.25)',
   },
-  forge: {
+  lightning: {
     base: '#fb7185',
     bright: '#fda4af',
     dim: '#4c0519',
     mid: '#881337',
     border: 'rgba(251,113,133,0.25)',
   },
-  mending: {
+  holy: {
     base: '#34d399',
     bright: '#6ee7b7',
     dim: '#022c22',

@@ -10,8 +10,9 @@ import { useFonts } from 'expo-font'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
-import { supabase, ensurePlayer } from '@/lib/supabase'
+import { supabase, ensurePlayer, fetchPlayerProgress } from '@/lib/supabase'
 import { useStore } from '@/store/useStore'
+import { usePersistenceSync } from '@/hooks/usePersistenceSync'
 import { Onboarding } from '@/components/Onboarding'
 import { CharacterSetup } from '@/components/CharacterSetup'
 import { elementAccent, COLORS } from '@/theme/tokens'
@@ -26,28 +27,44 @@ export default function RootLayout() {
   })
 
   const {
-    setUserId, setPlayer, player, reset,
+    setUserId, setPlayer, setInventory, setEquipped,
+    setCompletedQuestIds, setClearedDungeonIds, setTraits,
+    player, reset,
     characterSetupDone, setCharacterSetupDone,
     setSyncState, setSyncError, applyRunResult,
   } = useStore()
 
+  // Keep Supabase in sync with every local state change
+  usePersistenceSync()
+
   const [authResolved, setAuthResolved] = useState(false)
   const syncFired = useRef(false)
 
-  // Restore session on boot — AsyncStorage keeps the JWT between app restarts
+  // Restore session on boot — load player + server-persisted progress/inventory
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session?.user) {
         setUserId(session.user.id)
-        const { data } = await ensurePlayer(session.user.id)
-        if (data) setPlayer(data as Parameters<typeof setPlayer>[0])
+        const { data: playerData } = await ensurePlayer(session.user.id)
+        if (playerData) {
+          setPlayer(playerData as Parameters<typeof setPlayer>[0])
+          // Hydrate server-persisted state (inventory, progress)
+          const { data: progress } = await fetchPlayerProgress(session.user.id)
+          if (progress) {
+            if (progress.inventory) setInventory(progress.inventory as Parameters<typeof setInventory>[0])
+            if (progress.equipped)  setEquipped(progress.equipped as Parameters<typeof setEquipped>[0])
+            if (progress.completed_quest_ids) setCompletedQuestIds(progress.completed_quest_ids as string[])
+            if (progress.cleared_dungeon_ids) setClearedDungeonIds(progress.cleared_dungeon_ids as string[])
+            if (progress.traits) setTraits(progress.traits as Parameters<typeof setTraits>[0])
+          }
+        }
       } else {
         reset()
       }
       setAuthResolved(true)
     })
     return () => subscription.unsubscribe()
-  }, [setUserId, setPlayer, reset])
+  }, [setUserId, setPlayer, setInventory, setEquipped, setCompletedQuestIds, setClearedDungeonIds, reset])
 
   // Auto-sync on app open once player is ready — fires once per session
   useEffect(() => {

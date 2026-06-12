@@ -31,16 +31,16 @@ interface CharacterSetupProps {
 
 // Element icons / descriptions for the selection grid
 const ELEMENT_META: Record<Element, { icon: string; desc: string; statBonus: string }> = {
-  fire:    { icon: '🔥', desc: 'Raw power and devastation', statBonus: '+ATK' },
-  water:   { icon: '💧', desc: 'Flow and adaptability', statBonus: '+SPD' },
-  nature:  { icon: '🌿', desc: 'Growth and endurance', statBonus: '+END' },
-  arcane:  { icon: '✦', desc: 'Intellect and mystery', statBonus: '+INT' },
-  shadow:  { icon: '◈', desc: 'Concealment and cunning', statBonus: '+LCK' },
-  frost:   { icon: '❄', desc: 'Stillness and precision', statBonus: '+PER' },
-  earth:   { icon: '⬡', desc: 'Stability and defence', statBonus: '+DEF' },
-  harvest: { icon: '◉', desc: 'Fortune and abundance', statBonus: '+LCK' },
-  forge:   { icon: '⚙', desc: 'Craft and resilience', statBonus: '+DEF' },
-  mending: { icon: '✚', desc: 'Recovery and support', statBonus: '+END' },
+  fire:      { icon: '🔥', desc: 'Raw power and devastation',  statBonus: '+ATK' },
+  water:     { icon: '💧', desc: 'Flow and adaptability',       statBonus: '+SPD' },
+  nature:    { icon: '🌿', desc: 'Growth and endurance',        statBonus: '+END' },
+  arcane:    { icon: '🔮', desc: 'Intellect and mystery',       statBonus: '+INT' },
+  shadow:    { icon: '🌑', desc: 'Concealment and cunning',     statBonus: '+LCK' },
+  frost:     { icon: '❄️', desc: 'Stillness and precision',     statBonus: '+PER' },
+  earth:     { icon: '⛰️', desc: 'Stability and defence',       statBonus: '+DEF' },
+  wind:      { icon: '🌪️', desc: 'Speed and momentum',          statBonus: '+SPD' },
+  lightning: { icon: '⚡', desc: 'Strikes fast and hits hard',  statBonus: '+ATK' },
+  holy:      { icon: '✨', desc: 'Recovery and divine power',   statBonus: '+END' },
 }
 
 export const CharacterSetup: React.FC<CharacterSetupProps> = ({ onComplete }) => {
