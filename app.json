@@ -18,12 +18,26 @@
         "android.permission.health.READ_DISTANCE",
         "android.permission.health.READ_HEART_RATE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ]
+    },
+    "ios": {
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Aeternum uses your location to show the world map and let you claim territories.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Aeternum uses your location for the world map."
+      }
     },
     "plugins": [
       "expo-router",
       "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Aeternum needs location to show the world map and let you claim territories."
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -51,7 +65,8 @@
             "deploymentTarget": "16.4"
           }
         }
-      ]
+      ],
+      "@maplibre/maplibre-react-native"
     ],
     "scheme": "aeternum",
     "extra": {

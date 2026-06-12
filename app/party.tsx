@@ -1,7 +1,7 @@
 // =============================================================================
 // Aeternum — Party Screen
 // =============================================================================
-import React, { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet,
   ActivityIndicator, RefreshControl,

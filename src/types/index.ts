@@ -715,3 +715,131 @@ export const DISTANCE_TIERS: DistanceTier[] = [
   { minKm: 8.5, maxKm: 15, label: 'Threshold IV', rarity: 'rare', encounterLabel: 'Rank A Dungeon' },
   { minKm: 15, maxKm: Infinity, label: 'Threshold V', rarity: 'legendary', encounterLabel: 'Rank S Raid' },
 ]
+
+// ---------------------------------------------------------------------------
+// Territory system
+// ---------------------------------------------------------------------------
+
+export type ResourceType = 'iron' | 'crystal' | 'mana' | 'herbs' | 'gold'
+
+export const RESOURCE_LABELS: Record<ResourceType, string> = {
+  iron: 'Iron Ore',
+  crystal: 'Crystal Shard',
+  mana: 'Mana Essence',
+  herbs: 'Spirit Herb',
+  gold: 'Gold Dust',
+}
+
+export const RESOURCE_ICONS: Record<ResourceType, string> = {
+  iron: '⚙',
+  crystal: '◈',
+  mana: '✦',
+  herbs: '❧',
+  gold: '◆',
+}
+
+export interface Territory {
+  id: string
+  owner_id: string
+  owner_username?: string
+  lat: number
+  lng: number
+  name: string
+  level: number
+  created_at: string
+}
+
+export interface ResourceNode {
+  id: string
+  territory_id: string | null
+  lat: number
+  lng: number
+  resource_type: ResourceType
+  richness: number
+  last_harvested_at: string | null
+  last_harvested_by: string | null
+}
+
+export interface TerritoryAttack {
+  id: string
+  attacker_id: string
+  defender_id: string
+  territory_id: string
+  outcome: 'win' | 'loss'
+  atk_power: number
+  def_power: number
+  created_at: string
+}
+
+export interface PlayerResources {
+  influence: number
+  iron: number
+  crystal: number
+  mana: number
+  herbs: number
+  gold: number
+}
+
+export const EMPTY_RESOURCES: PlayerResources = {
+  influence: 0, iron: 0, crystal: 0, mana: 0, herbs: 0, gold: 0,
+}
+
+export interface Fortress {
+  level: number
+  barracks_level: number
+  walls_level: number
+  forge_level: number
+}
+
+export const EMPTY_FORTRESS: Fortress = {
+  level: 1, barracks_level: 0, walls_level: 0, forge_level: 0,
+}
+
+export interface FortressBuilding {
+  key: keyof Omit<Fortress, 'level'>
+  name: string
+  description: string
+  statBonus: string
+  icon: string
+  maxLevel: number
+  upgradeCost: (level: number) => Partial<PlayerResources>
+}
+
+export const FORTRESS_BUILDINGS: FortressBuilding[] = [
+  {
+    key: 'barracks_level',
+    name: 'Barracks',
+    description: 'Train soldiers, increase ATK.',
+    statBonus: '+2 ATK per level',
+    icon: '⚔',
+    maxLevel: 5,
+    upgradeCost: (lvl) => ({ iron: lvl * 10 + 5, gold: lvl * 5 }),
+  },
+  {
+    key: 'walls_level',
+    name: 'Fortress Walls',
+    description: 'Harden your defences, increase DEF.',
+    statBonus: '+2 DEF per level',
+    icon: '🛡',
+    maxLevel: 5,
+    upgradeCost: (lvl) => ({ iron: lvl * 15, crystal: lvl * 5 }),
+  },
+  {
+    key: 'forge_level',
+    name: 'Grand Forge',
+    description: 'Unlock advanced crafting recipes.',
+    statBonus: '+1 craft slot per level',
+    icon: '⚒',
+    maxLevel: 5,
+    upgradeCost: (lvl) => ({ iron: lvl * 8, mana: lvl * 8 }),
+  },
+]
+
+// Influence cost to place a new territory
+export const TERRITORY_PLACE_COST = 50
+// Harvest cooldown in hours
+export const HARVEST_COOLDOWN_H = 6
+// Harvest range in metres
+export const HARVEST_RANGE_M = 200
+// Attack range from any own territory (km)
+export const ATTACK_RANGE_KM = 5

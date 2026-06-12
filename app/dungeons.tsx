@@ -5,7 +5,7 @@
 // stat requirements. Clearing awards stat bonuses immediately.
 // =============================================================================
 
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectPlayer, selectClearedDungeonIds, selectEquipped, selectPartyMembers } from '@/store/useStore'
@@ -17,7 +17,7 @@ import {
   COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS,
   elementAccent, SHADOWS,
 } from '@/theme/tokens'
-import { DUNGEON_ENTRIES, STAT_KEYS, STAT_LABELS, type DungeonEntry, type Element } from '@/types'
+import { DUNGEON_ENTRIES, STAT_KEYS, STAT_LABELS, STAT_SOURCES, type DungeonEntry, type Element, type StatKey } from '@/types'
 import { resolveCoOpGate, type PublicPlayer } from '@/lib/supabase'
 
 // ---------------------------------------------------------------------------
@@ -132,7 +132,7 @@ interface CoOpModalProps {
 
 function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpModalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const rankColor = DUNGEON_RANK_COLORS_LOCAL[dungeon.rank] ?? COLORS.system
+  const rankColor = DUNGEON_RANK_COLORS[dungeon.rank] ?? COLORS.system
 
   function toggle(id: string) {
     setSelected(prev => {
@@ -280,12 +280,10 @@ const coopStyles = StyleSheet.create({
   checkmark: { fontFamily: FONTS.mono, fontSize: 12, color: COLORS.ground },
 })
 
-const DUNGEON_RANK_COLORS_LOCAL: Record<string, string> = {
+const DUNGEON_RANK_COLORS: Record<string, string> = {
   F: '#4a5068', E: '#3ddc84', D: '#4fa8f8',
   C: '#a78bfa', B: '#f97316', A: '#ffd54f', S: '#e11d48',
 }
-
-const DUNGEON_RANK_COLORS: Record<string, string> = DUNGEON_RANK_COLORS_LOCAL
 
 export default function DungeonsScreen() {
   const player = useStore(selectPlayer)
@@ -347,18 +345,26 @@ export default function DungeonsScreen() {
     setCoOpLoading(true)
     try {
       const result = await resolveCoOpGate(selectedDungeon.id, participantIds)
+      if (!result) throw new Error('No response from server')
       if (result.won) {
-        clearDungeon(selectedDungeon.id, result.outcomes.find(o => o.player_id === player.id)?.stat_gains ?? {})
+        clearDungeon(selectedDungeon.id, result.outcomes?.find(o => o.player_id === player.id)?.stat_gains ?? {})
       }
       setCoOpResult({
         won: result.won,
-        winProb: result.win_probability,
-        participantCount: result.participant_count,
-        statGains: (result.outcomes[0]?.stat_gains ?? {}) as Record<string, number>,
+        winProb: result.win_probability ?? calcWinProbability(selectedDungeon, stats, totalDistance),
+        participantCount: result.participant_count ?? participantIds.length,
+        statGains: (result.outcomes?.[0]?.stat_gains ?? {}) as Record<string, number>,
       })
-    } catch (err) {
-      // Fallback to local solo clear on server error
-      clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+    } catch {
+      // Edge function unavailable or returned null — fall back to local resolution
+      const localWon = Math.random() < calcWinProbability(selectedDungeon, stats, totalDistance)
+      if (localWon) clearDungeon(selectedDungeon.id, selectedDungeon.statRewards)
+      setCoOpResult({
+        won: localWon,
+        winProb: calcWinProbability(selectedDungeon, stats, totalDistance),
+        participantCount: participantIds.length,
+        statGains: localWon ? selectedDungeon.statRewards as Record<string, number> : {},
+      })
     } finally {
       setCoOpLoading(false)
       setSelectedDungeon(null)
@@ -528,7 +534,7 @@ export default function DungeonsScreen() {
                   <Button
                     label="Retreat"
                     variant="ghost"
-                    onPress={() => setShowClearModal(false)}
+                    onPress={() => { setShowClearModal(false); setSelectedDungeon(null) }}
                     fullWidth
                   />
                 </View>
@@ -621,6 +627,9 @@ function DungeonCard({
             <View key={k} style={cardStyles.reqChip}>
               <Text style={cardStyles.reqKey}>{k}</Text>
               <Text style={cardStyles.reqVal}>{stats[k] ?? 0}/{v}</Text>
+              {STAT_SOURCES[k as StatKey] && (
+                <Text style={cardStyles.reqHint}> · {STAT_SOURCES[k as StatKey]}</Text>
+              )}
             </View>
           ))}
           {missingStats.length > 4 && (
@@ -872,6 +881,12 @@ const cardStyles = StyleSheet.create({
     fontFamily: FONTS.mono,
     fontSize: FONT_SIZES.xs,
     color: COLORS.error,
+  },
+  reqHint: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary,
+    fontStyle: 'italic',
   },
   reqMore: {
     fontFamily: FONTS.mono,

@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse } from '@/types'
+import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, ResourceType } from '@/types'
+import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS } from '@/types'
 import type { PublicPlayer } from '@/lib/supabase'
 
 export interface PartyInvite {
@@ -12,7 +13,6 @@ export interface PartyInvite {
   created_at: string
   from_username?: string
 }
-import { EMPTY_INVENTORY, EMPTY_LOADOUT } from '@/types'
 
 interface AeternumState {
   // Auth
@@ -50,6 +50,13 @@ interface AeternumState {
   partyInvites: PartyInvite[]
   lastCoOpResult: CoOpGateResponse | null
 
+  // Territory (persisted resources; territories fetched from server)
+  resources: PlayerResources
+  fortress: Fortress
+  myTerritories: Territory[]
+  nearbyTerritories: Territory[]
+  nearbyNodes: ResourceNode[]
+
   // Actions — auth/player
   setUserId: (id: string | null) => void
   setPlayer: (player: Player) => void
@@ -83,6 +90,19 @@ interface AeternumState {
   unequipRelic: () => void
   unlockTalent: (talentId: string) => void
 
+  // Actions — territory
+  setResources: (r: PlayerResources) => void
+  addInfluence: (amount: number) => void
+  spendInfluence: (amount: number) => boolean
+  addResource: (type: ResourceType, amount: number) => void
+  spendResources: (cost: Partial<PlayerResources>) => boolean
+  setFortress: (f: Fortress) => void
+  upgradeFortressBuilding: (key: keyof Omit<Fortress, 'level'>) => void
+  setMyTerritories: (t: Territory[]) => void
+  addMyTerritory: (t: Territory) => void
+  setNearbyTerritories: (t: Territory[]) => void
+  setNearbyNodes: (n: ResourceNode[]) => void
+
   reset: () => void
 }
 
@@ -99,6 +119,9 @@ const INITIAL_TRANSIENT = {
   partyMembers: [] as PublicPlayer[],
   partyInvites: [] as PartyInvite[],
   lastCoOpResult: null as CoOpGateResponse | null,
+  myTerritories: [] as Territory[],
+  nearbyTerritories: [] as Territory[],
+  nearbyNodes: [] as ResourceNode[],
 }
 
 const INITIAL_PERSISTENT = {
@@ -109,6 +132,8 @@ const INITIAL_PERSISTENT = {
   inventory: EMPTY_INVENTORY,
   equipped: EMPTY_LOADOUT,
   unlockedTalentIds: [],
+  resources: EMPTY_RESOURCES,
+  fortress: EMPTY_FORTRESS,
 }
 
 function applyStatRewards(
@@ -263,7 +288,36 @@ export const useStore = create<AeternumState>()(
         set({ unlockedTalentIds: [...unlockedTalentIds, talentId] })
       },
 
-      reset: () => set(INITIAL_TRANSIENT),
+      // Territory actions
+      setResources: (r) => set({ resources: r }),
+      addInfluence: (amount) => set((s) => ({ resources: { ...s.resources, influence: s.resources.influence + amount } })),
+      spendInfluence: (amount) => {
+        const { resources } = get()
+        if (resources.influence < amount) return false
+        set({ resources: { ...resources, influence: resources.influence - amount } })
+        return true
+      },
+      addResource: (type, amount) => set((s) => ({ resources: { ...s.resources, [type]: (s.resources[type as keyof PlayerResources] as number) + amount } })),
+      spendResources: (cost) => {
+        const { resources } = get()
+        for (const [k, v] of Object.entries(cost)) {
+          if ((resources[k as keyof PlayerResources] as number) < (v as number)) return false
+        }
+        const next = { ...resources }
+        for (const [k, v] of Object.entries(cost)) {
+          (next[k as keyof PlayerResources] as number) -= v as number
+        }
+        set({ resources: next })
+        return true
+      },
+      setFortress: (f) => set({ fortress: f }),
+      upgradeFortressBuilding: (key) => set((s) => ({ fortress: { ...s.fortress, [key]: s.fortress[key] + 1 } })),
+      setMyTerritories: (t) => set({ myTerritories: t }),
+      addMyTerritory: (t) => set((s) => ({ myTerritories: [t, ...s.myTerritories] })),
+      setNearbyTerritories: (t) => set({ nearbyTerritories: t }),
+      setNearbyNodes: (n) => set({ nearbyNodes: n }),
+
+      reset: () => set({ ...INITIAL_TRANSIENT, ...INITIAL_PERSISTENT }),
     }),
     {
       name: 'aeternum-local',
@@ -276,6 +330,8 @@ export const useStore = create<AeternumState>()(
         inventory: state.inventory,
         equipped: state.equipped,
         unlockedTalentIds: state.unlockedTalentIds,
+        resources: state.resources,
+        fortress: state.fortress,
       }),
     },
   ),
@@ -301,3 +357,8 @@ export const selectUnlockedTalentIds = (s: AeternumState) => s.unlockedTalentIds
 export const selectPartyMembers = (s: AeternumState) => s.partyMembers
 export const selectPartyInvites = (s: AeternumState) => s.partyInvites
 export const selectLastCoOpResult = (s: AeternumState) => s.lastCoOpResult
+export const selectResources = (s: AeternumState) => s.resources
+export const selectFortress = (s: AeternumState) => s.fortress
+export const selectMyTerritories = (s: AeternumState) => s.myTerritories
+export const selectNearbyTerritories = (s: AeternumState) => s.nearbyTerritories
+export const selectNearbyNodes = (s: AeternumState) => s.nearbyNodes

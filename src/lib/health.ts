@@ -12,13 +12,18 @@ import type { HealthConnectSession } from '@/types'
 // On Android this launches the Health Connect permission dialog via ActivityResultLauncher.
 // Calling it from a background useEffect will crash.
 export async function initHealth(): Promise<boolean> {
-  if (Platform.OS === 'android') {
-    const { initHealthConnect } = await import('./healthConnect')
-    return initHealthConnect()
-  }
-  if (Platform.OS === 'ios') {
-    const { initHealthKit } = await import('./healthKit')
-    return initHealthKit()
+  try {
+    if (Platform.OS === 'android') {
+      const { initHealthConnect } = await import('./healthConnect')
+      return initHealthConnect()
+    }
+    if (Platform.OS === 'ios') {
+      const { initHealthKit } = await import('./healthKit')
+      return initHealthKit()
+    }
+  } catch {
+    // Native permission delegate not initialized or permission dialog failed
+    return false
   }
   return false
 }

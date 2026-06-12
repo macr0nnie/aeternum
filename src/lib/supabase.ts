@@ -252,6 +252,107 @@ export async function fetchLeaderboard(category: LeaderboardCategory, limit = 50
 }
 
 // ---------------------------------------------------------------------------
+// Territory
+// ---------------------------------------------------------------------------
+
+function boundingBox(lat: number, lng: number, radiusKm: number) {
+  const latD = radiusKm / 111
+  const lngD = radiusKm / (111 * Math.cos((lat * Math.PI) / 180))
+  return { minLat: lat - latD, maxLat: lat + latD, minLng: lng - lngD, maxLng: lng + lngD }
+}
+
+export async function fetchNearbyTerritories(lat: number, lng: number, radiusKm = 5) {
+  const b = boundingBox(lat, lng, radiusKm)
+  return supabase
+    .from('territories')
+    .select('*, players!owner_id(username)')
+    .gte('lat', b.minLat).lte('lat', b.maxLat)
+    .gte('lng', b.minLng).lte('lng', b.maxLng)
+    .limit(200)
+}
+
+export async function fetchMyTerritories(playerId: string) {
+  return supabase
+    .from('territories')
+    .select('*')
+    .eq('owner_id', playerId)
+    .order('created_at', { ascending: false })
+}
+
+export async function placeTerritory(ownerId: string, lat: number, lng: number, name: string) {
+  return supabase
+    .from('territories')
+    .insert({ owner_id: ownerId, lat, lng, name })
+    .select()
+    .single()
+}
+
+export async function fetchNearbyNodes(lat: number, lng: number, radiusKm = 0.3) {
+  const b = boundingBox(lat, lng, radiusKm)
+  return supabase
+    .from('resource_nodes')
+    .select('*')
+    .gte('lat', b.minLat).lte('lat', b.maxLat)
+    .gte('lng', b.minLng).lte('lng', b.maxLng)
+}
+
+export async function harvestNode(nodeId: string, playerId: string) {
+  return supabase
+    .from('resource_nodes')
+    .update({ last_harvested_at: new Date().toISOString(), last_harvested_by: playerId })
+    .eq('id', nodeId)
+    .select()
+    .single()
+}
+
+export async function spawnNodesNearTerritory(territoryId: string, lat: number, lng: number) {
+  const types: import('@/types').ResourceType[] = ['iron', 'crystal', 'mana', 'herbs', 'gold']
+  const nodes = Array.from({ length: 3 }, (_, i) => {
+    const angle = (i / 3) * 2 * Math.PI + Math.random() * 0.5
+    const dist = 0.002 + Math.random() * 0.002
+    return {
+      territory_id: territoryId,
+      lat: lat + Math.sin(angle) * dist,
+      lng: lng + Math.cos(angle) * dist,
+      resource_type: types[Math.floor(Math.random() * types.length)],
+      richness: Math.ceil(Math.random() * 3),
+    }
+  })
+  return supabase.from('resource_nodes').insert(nodes)
+}
+
+export async function attackTerritory(
+  attackerId: string, defenderId: string, territoryId: string,
+  atkPower: number, defPower: number, outcome: 'win' | 'loss',
+) {
+  const { data: atk } = await supabase
+    .from('territory_attacks')
+    .insert({ attacker_id: attackerId, defender_id: defenderId, territory_id: territoryId, outcome, atk_power: atkPower, def_power: defPower })
+    .select().single()
+
+  if (outcome === 'win') {
+    await supabase.from('territories').update({ owner_id: attackerId }).eq('id', territoryId)
+  }
+  return atk
+}
+
+export async function fetchPlayerResources(playerId: string) {
+  return supabase.from('player_resources').select('*').eq('player_id', playerId).single()
+}
+
+export async function upsertPlayerResources(playerId: string, patch: Record<string, number>) {
+  return supabase.from('player_resources').upsert({ player_id: playerId, ...patch, updated_at: new Date().toISOString() })
+}
+
+export async function fetchFortress(playerId: string) {
+  return supabase.from('fortress').select('*').eq('player_id', playerId).single()
+}
+
+export async function upsertFortress(playerId: string, patch: Record<string, number>) {
+  return supabase.from('fortress').upsert({ player_id: playerId, ...patch, updated_at: new Date().toISOString() })
+}
+
+// ---------------------------------------------------------------------------
 // Co-op gate
 // ---------------------------------------------------------------------------
 

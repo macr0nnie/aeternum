@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useEffect, useCallback, useState, useRef } from 'react'
-import { View, StyleSheet, Alert, Platform } from 'react-native'
+import { View, StyleSheet } from 'react-native'
 import { Tabs } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useFonts } from 'expo-font'
@@ -28,7 +28,6 @@ export default function RootLayout() {
   const {
     setUserId, setPlayer, player, reset,
     characterSetupDone, setCharacterSetupDone,
-    healthPermissionAsked, setHealthPermissionAsked,
     setSyncState, setSyncError, applyRunResult,
   } = useStore()
 
@@ -49,32 +48,6 @@ export default function RootLayout() {
     })
     return () => subscription.unsubscribe()
   }, [setUserId, setPlayer, reset])
-
-  // Request health permissions once after character setup is done
-  useEffect(() => {
-    if (!player || !characterSetupDone || healthPermissionAsked) return
-
-    async function requestHealth() {
-      setHealthPermissionAsked(true)
-      try {
-        const { initHealth } = await import('@/lib/health')
-        const granted = await initHealth()
-        if (!granted) {
-          Alert.alert(
-            'Health Access',
-            Platform.OS === 'ios'
-              ? 'Enable HealthKit in Settings → Health → Data Access & Devices → Aeternum to sync your runs.'
-              : 'Enable Health Connect permissions in Settings to sync your runs.',
-            [{ text: 'OK' }],
-          )
-        }
-      } catch {
-        // Health not available on this device — fail silently
-      }
-    }
-
-    requestHealth()
-  }, [player, characterSetupDone, healthPermissionAsked, setHealthPermissionAsked])
 
   // Auto-sync on app open once player is ready — fires once per session
   useEffect(() => {
@@ -139,17 +112,21 @@ export default function RootLayout() {
             },
           }}
         >
-          <Tabs.Screen name="index"       options={{ title: 'Command',     tabBarIcon: ({ color, size }) => <Ionicons name="terminal-outline"   size={size} color={color} /> }} />
-          <Tabs.Screen name="sync"        options={{ href: null }} />
-          <Tabs.Screen name="quests"      options={{ title: 'Quests',      tabBarIcon: ({ color, size }) => <Ionicons name="list-outline"        size={size} color={color} /> }} />
-          <Tabs.Screen name="dungeons"    options={{ title: 'Gates',       tabBarIcon: ({ color, size }) => <Ionicons name="shield-outline"      size={size} color={color} /> }} />
-          <Tabs.Screen name="party"       options={{ title: 'Party',       tabBarIcon: ({ color, size }) => <Ionicons name="people-outline"      size={size} color={color} /> }} />
-          <Tabs.Screen name="leaderboard" options={{ title: 'Ranks',       tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline"      size={size} color={color} /> }} />
-          <Tabs.Screen name="inventory"   options={{ title: 'Bag',         tabBarIcon: ({ color, size }) => <Ionicons name="bag-outline"         size={size} color={color} /> }} />
-          <Tabs.Screen name="smithy"      options={{ title: 'Smithy',      tabBarIcon: ({ color, size }) => <Ionicons name="hammer-outline"      size={size} color={color} /> }} />
-          <Tabs.Screen name="identity"    options={{ title: 'Identity',    tabBarIcon: ({ color, size }) => <Ionicons name="person-outline"      size={size} color={color} /> }} />
-          <Tabs.Screen name="progress"    options={{ title: 'Progress',    tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline"   size={size} color={color} /> }} />
-          {/* Hidden routes */}
+          <Tabs.Screen name="world"       options={{ title: 'World',    tabBarIcon: ({ color, size }) => <Ionicons name="globe-outline"    size={size} color={color} /> }} />
+          <Tabs.Screen name="fortress"    options={{ title: 'Fortress', tabBarIcon: ({ color, size }) => <Ionicons name="home-outline"     size={size} color={color} /> }} />
+          <Tabs.Screen name="dungeons"    options={{ title: 'Gates',    tabBarIcon: ({ color, size }) => <Ionicons name="shield-outline"   size={size} color={color} /> }} />
+          <Tabs.Screen name="hunter"      options={{ title: 'Hunter',   tabBarIcon: ({ color, size }) => <Ionicons name="body-outline"     size={size} color={color} /> }} />
+          <Tabs.Screen name="party"       options={{ title: 'Party',    tabBarIcon: ({ color, size }) => <Ionicons name="people-outline"   size={size} color={color} /> }} />
+          <Tabs.Screen name="settings"    options={{ title: 'Settings', tabBarIcon: ({ color, size }) => <Ionicons name="settings-outline" size={size} color={color} /> }} />
+          {/* Hidden screens */}
+          <Tabs.Screen name="index"            options={{ href: null }} />
+          <Tabs.Screen name="quests"           options={{ href: null }} />
+          <Tabs.Screen name="leaderboard"      options={{ href: null }} />
+          <Tabs.Screen name="inventory"        options={{ href: null }} />
+          <Tabs.Screen name="smithy"           options={{ href: null }} />
+          <Tabs.Screen name="identity"         options={{ href: null }} />
+          <Tabs.Screen name="progress"         options={{ href: null }} />
+          <Tabs.Screen name="sync"             options={{ href: null }} />
           <Tabs.Screen name="rewards"          options={{ href: null }} />
           <Tabs.Screen name="character-setup"  options={{ href: null }} />
         </Tabs>
