@@ -348,8 +348,58 @@ export async function fetchFortress(playerId: string) {
   return supabase.from('fortress').select('*').eq('player_id', playerId).single()
 }
 
-export async function upsertFortress(playerId: string, patch: Record<string, number>) {
+export async function upsertFortress(playerId: string, patch: Record<string, unknown>) {
   return supabase.from('fortress').upsert({ player_id: playerId, ...patch, updated_at: new Date().toISOString() })
+}
+
+// ---------------------------------------------------------------------------
+// Fortress crops
+// ---------------------------------------------------------------------------
+
+export async function fetchFortressCrops(playerId: string) {
+  return supabase.from('fortress_crops').select('*').eq('player_id', playerId).order('slot_index')
+}
+
+export async function plantCrop(playerId: string, slotIndex: number, cropType: string) {
+  return supabase.from('fortress_crops').upsert({
+    player_id: playerId, slot_index: slotIndex, crop_type: cropType,
+    planted_at: new Date().toISOString(), last_harvested_at: null,
+  }, { onConflict: 'player_id,slot_index' })
+}
+
+export async function harvestCrop(cropId: string) {
+  return supabase.from('fortress_crops')
+    .update({ last_harvested_at: new Date().toISOString() })
+    .eq('id', cropId).select().single()
+}
+
+export async function removeCrop(playerId: string, slotIndex: number) {
+  return supabase.from('fortress_crops').delete().eq('player_id', playerId).eq('slot_index', slotIndex)
+}
+
+// ---------------------------------------------------------------------------
+// Player skills (unlocked via rewards)
+// ---------------------------------------------------------------------------
+
+export async function fetchPlayerSkills(playerId: string) {
+  return supabase.from('player_skills').select('skill_id, kind').eq('player_id', playerId)
+}
+
+export async function unlockSkill(playerId: string, skillId: string, kind: 'player' | 'base') {
+  return supabase.from('player_skills').upsert(
+    { player_id: playerId, skill_id: skillId, kind, unlocked_at: new Date().toISOString() },
+    { onConflict: 'player_id,skill_id', ignoreDuplicates: true },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Fortress defense slots
+// ---------------------------------------------------------------------------
+
+export async function saveDefenseSlots(playerId: string, slots: { slot_index: number; skill_id: string | null }[]) {
+  return supabase.from('fortress').upsert({
+    player_id: playerId, defense_slots: slots, updated_at: new Date().toISOString(),
+  }, { onConflict: 'player_id' })
 }
 
 // ---------------------------------------------------------------------------

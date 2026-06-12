@@ -784,19 +784,100 @@ export const EMPTY_RESOURCES: PlayerResources = {
   influence: 0, iron: 0, crystal: 0, mana: 0, herbs: 0, gold: 0,
 }
 
+// ---------------------------------------------------------------------------
+// Player Skills — active/passive abilities unlocked via gameplay
+// ---------------------------------------------------------------------------
+
+export type SkillKind = 'player' | 'base'
+export type SkillActivation = 'active' | 'passive'
+
+export interface PlayerSkill {
+  id: string
+  name: string
+  kind: SkillKind
+  activation: SkillActivation
+  element: Element | null
+  description: string
+  effect: string
+  rarity: Rarity
+  flavor: string
+  icon: string
+}
+
+export const PLAYER_SKILLS: PlayerSkill[] = [
+  { id: 'sk_shadow_step',     name: 'Shadow Step',          kind: 'player', activation: 'active',  element: 'shadow',  description: 'Dash through shadows instantly.',           effect: '+15% SPD for next dungeon',         rarity: 'uncommon', flavor: 'Between blinks, I was gone.',              icon: '🌑' },
+  { id: 'sk_iron_skin',       name: 'Iron Skin',            kind: 'player', activation: 'passive', element: 'forge',   description: 'Harden your body against physical hits.',   effect: '+10 DEF permanently',               rarity: 'common',   flavor: 'Hammered by miles, hardened by will.',     icon: '🛡' },
+  { id: 'sk_flame_strike',    name: 'Flame Strike',         kind: 'player', activation: 'active',  element: 'fire',    description: 'Ignite your weapon with mana fire.',        effect: '+20% ATK vs frost/nature gates',    rarity: 'rare',     flavor: 'Everything burns if you run hot enough.',  icon: '🔥' },
+  { id: 'sk_arcane_insight',  name: 'Arcane Insight',       kind: 'player', activation: 'passive', element: 'arcane',  description: 'Read the gate before entering.',           effect: '+5% win probability on all gates', rarity: 'uncommon', flavor: 'Knowledge is the sharpest weapon.',        icon: '🔮' },
+  { id: 'sk_wind_dash',       name: 'Wind Dash',            kind: 'player', activation: 'active',  element: null,      description: 'Burst of pure speed.',                      effect: '+20% SPD this run',                 rarity: 'common',   flavor: 'The wind does not wait.',                  icon: '💨' },
+  { id: 'sk_mending_aura',    name: 'Mending Aura',         kind: 'player', activation: 'passive', element: 'mending', description: 'Slowly recover stats after gate defeat.',   effect: 'Recover 50% stat loss after loss',  rarity: 'rare',     flavor: 'Wounds are lessons. Heal them quickly.',   icon: '✨' },
+  { id: 'sk_void_sight',      name: 'Void Sight',           kind: 'player', activation: 'passive', element: 'shadow',  description: 'See through darkness and illusions.',       effect: '+10 PER permanently',               rarity: 'rare',     flavor: 'The void reveals all truths.',             icon: '👁' },
+  { id: 'sk_battle_cry',      name: 'Battle Cry',           kind: 'player', activation: 'active',  element: null,      description: 'Rally the party before a gate.',           effect: '+15% all stats for co-op gates',   rarity: 'uncommon', flavor: 'One voice can move an army.',              icon: '⚔' },
+]
+
+export const BASE_SKILLS: PlayerSkill[] = [
+  { id: 'bsk_iron_golem',     name: 'Iron Golem',           kind: 'base',   activation: 'passive', element: 'forge',   description: 'A construct that guards your territory.',   effect: '+20 DEF to fortress',               rarity: 'common',   flavor: 'Stone and steel do not sleep.',            icon: '🗿' },
+  { id: 'bsk_life_seed',      name: 'Life Rejuvenation Seed', kind: 'base', activation: 'passive', element: 'mending', description: 'Slowly heals the base after attacks.',     effect: 'Restore 10 DEF/day passively',      rarity: 'uncommon', flavor: 'Where there is growth, there is survival.', icon: '🌱' },
+  { id: 'bsk_shadow_ward',    name: 'Shadow Ward',          kind: 'base',   activation: 'passive', element: 'shadow',  description: 'Obscures your territory from detection.',  effect: '-25% chance to be targeted',        rarity: 'rare',     flavor: 'The best defence is invisibility.',        icon: '🌑' },
+  { id: 'bsk_frost_barrier',  name: 'Frost Barrier',        kind: 'base',   activation: 'active',  element: 'frost',   description: 'Slows enemy attackers on contact.',        effect: '-20% attacker SPD in PvP',          rarity: 'uncommon', flavor: 'Cold stone is still stone.',               icon: '❄' },
+  { id: 'bsk_arcane_shield',  name: 'Arcane Shield',        kind: 'base',   activation: 'passive', element: 'arcane',  description: 'Magical barrier that absorbs first hit.',  effect: 'Absorb 1 attack per 24h',           rarity: 'rare',     flavor: 'Magic endures where walls crumble.',       icon: '🔵' },
+  { id: 'bsk_fire_trap',      name: 'Fire Trap',            kind: 'base',   activation: 'active',  element: 'fire',    description: 'Burns attackers who breach the perimeter.', effect: 'Deal 15% ATK back to attacker',    rarity: 'uncommon', flavor: 'Step on the flame. See what happens.',     icon: '🔥' },
+]
+
+export const ALL_SKILLS: PlayerSkill[] = [...PLAYER_SKILLS, ...BASE_SKILLS]
+
+// ---------------------------------------------------------------------------
+// Fortress crops (passive resource generation)
+// ---------------------------------------------------------------------------
+
+export type CropType = 'herb_garden' | 'iron_mine' | 'mana_pool' | 'crystal_vein' | 'gold_deposit'
+
+export const CROP_CONFIG: Record<CropType, {
+  label: string; icon: string; resource: ResourceType; yieldAmount: number; cooldownHours: number
+}> = {
+  herb_garden:   { label: 'Herb Garden',   icon: '🌿', resource: 'herbs',   yieldAmount: 5, cooldownHours: 4  },
+  iron_mine:     { label: 'Iron Mine',     icon: '⛏',  resource: 'iron',    yieldAmount: 8, cooldownHours: 6  },
+  mana_pool:     { label: 'Mana Pool',     icon: '✦',  resource: 'mana',    yieldAmount: 3, cooldownHours: 8  },
+  crystal_vein:  { label: 'Crystal Vein',  icon: '◈',  resource: 'crystal', yieldAmount: 2, cooldownHours: 12 },
+  gold_deposit:  { label: 'Gold Deposit',  icon: '◆',  resource: 'gold',    yieldAmount: 1, cooldownHours: 24 },
+}
+
+export interface FortressCrop {
+  id: string
+  player_id: string
+  slot_index: number
+  crop_type: CropType
+  planted_at: string
+  last_harvested_at: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Fortress (extended)
+// ---------------------------------------------------------------------------
+
+export type FortressBuildingKey = 'barracks_level' | 'walls_level' | 'forge_level'
+
+export interface DefenseSlot {
+  slot_index: number       // 0–4
+  skill_id: string | null  // references ALL_SKILLS[].id
+}
+
 export interface Fortress {
   level: number
   barracks_level: number
   walls_level: number
   forge_level: number
+  element: Element | null        // null = inherits player primary_element
+  defense_slots: DefenseSlot[]   // up to 5 active base skills
 }
 
 export const EMPTY_FORTRESS: Fortress = {
   level: 1, barracks_level: 0, walls_level: 0, forge_level: 0,
+  element: null, defense_slots: [],
 }
 
 export interface FortressBuilding {
-  key: keyof Omit<Fortress, 'level'>
+  key: FortressBuildingKey
   name: string
   description: string
   statBonus: string
@@ -834,6 +915,50 @@ export const FORTRESS_BUILDINGS: FortressBuilding[] = [
     upgradeCost: (lvl) => ({ iron: lvl * 8, mana: lvl * 8 }),
   },
 ]
+
+// ---------------------------------------------------------------------------
+// Dropped rewards (for the dismissible rewards popup)
+// ---------------------------------------------------------------------------
+
+export type DropKind =
+  | 'gear'
+  | 'relic'
+  | 'consumable'
+  | 'material'
+  | 'resource'
+  | 'stat_gain'
+  | 'skill'
+  | 'base_skill'
+
+export interface DroppedReward {
+  id: string          // unique per-popup-instance (use nanoid / Date.now())
+  kind: DropKind
+  rarity: Rarity
+  name: string
+  description: string
+  icon: string
+  quantity?: number
+  // Extra payload — present only for matching kind:
+  statGains?: Partial<Stats>            // stat_gain
+  skillId?: string                      // skill / base_skill
+  resourceType?: ResourceType           // resource
+}
+
+export const RARITY_COLORS: Record<Rarity, string> = {
+  common:    '#6b7280',
+  uncommon:  '#3ddc84',
+  rare:      '#4fa8f8',
+  legendary: '#ffd54f',
+  mythic:    '#e11d48',
+}
+
+export const RARITY_LABELS: Record<Rarity, string> = {
+  common:    'COMMON',
+  uncommon:  'UNCOMMON',
+  rare:      'RARE',
+  legendary: 'LEGENDARY',
+  mythic:    'MYTHIC',
+}
 
 // Influence cost to place a new territory
 export const TERRITORY_PLACE_COST = 50

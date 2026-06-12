@@ -285,6 +285,8 @@ const DUNGEON_RANK_COLORS: Record<string, string> = {
   C: '#a78bfa', B: '#f97316', A: '#ffd54f', S: '#e11d48',
 }
 
+const RANK_ORDER = ['F', 'E', 'D', 'C', 'B', 'A', 'S']
+
 export default function DungeonsScreen() {
   const player = useStore(selectPlayer)
   const clearedIds = useStore(selectClearedDungeonIds)
@@ -378,13 +380,17 @@ export default function DungeonsScreen() {
     setSelectedDungeon(null)
   }
 
-  const grouped = ['F', 'E', 'D', 'C', 'B', 'A', 'S'].reduce<Record<string, DungeonEntry[]>>(
+  const grouped = RANK_ORDER.reduce<Record<string, DungeonEntry[]>>(
     (acc, rank) => {
       acc[rank] = DUNGEON_ENTRIES.filter((d) => d.rank === rank)
       return acc
     },
     {},
   )
+
+  const playerRankIdx = Math.max(0, RANK_ORDER.indexOf(player?.rank ?? 'F'))
+  const availableRanks = RANK_ORDER.slice(0, playerRankIdx + 1)
+  const nextTierRank = RANK_ORDER[playerRankIdx + 1] as string | undefined
 
   return (
     <SafeAreaView style={styles.container}>
@@ -400,6 +406,15 @@ export default function DungeonsScreen() {
 
         {/* Player stat summary */}
         <SystemWindow title="HUNTER STATUS">
+          <View style={styles.hunterRankRow}>
+            <Label variant="tertiary" size="xs">CURRENT RANK</Label>
+            <View style={[styles.hunterRankPill, { borderColor: DUNGEON_RANK_COLORS[player?.rank ?? 'F'] }]}>
+              <Text style={[styles.hunterRankTxt, { color: DUNGEON_RANK_COLORS[player?.rank ?? 'F'] }]}>
+                {`RANK ${player?.rank ?? 'F'}`}
+              </Text>
+            </View>
+          </View>
+          <Spacer size="xs" />
           {STAT_KEYS.map((key) => {
             const color = palette.base
             return (
@@ -413,9 +428,9 @@ export default function DungeonsScreen() {
           </View>
         </SystemWindow>
 
-        <SectionHeader title="Available Gates" color={palette.base} />
+        <SectionHeader title="YOUR GATES" color={palette.base} />
 
-        {['F', 'E', 'D', 'C', 'B', 'A', 'S'].map((rank) => {
+        {availableRanks.map((rank) => {
           const dungeons = grouped[rank]
           if (!dungeons || dungeons.length === 0) return null
           const rankColor = DUNGEON_RANK_COLORS[rank]
@@ -445,6 +460,27 @@ export default function DungeonsScreen() {
             </View>
           )
         })}
+
+        {nextTierRank && grouped[nextTierRank] && grouped[nextTierRank].length > 0 && (
+          <>
+            <Spacer size="md" />
+            <View style={styles.nextTierHeader}>
+              <View style={[styles.nextTierStripe, { backgroundColor: DUNGEON_RANK_COLORS[nextTierRank] }]} />
+              <View style={styles.nextTierInfo}>
+                <Text style={[styles.nextTierTitle, { color: DUNGEON_RANK_COLORS[nextTierRank] }]}>
+                  {`NEXT TIER — RANK ${nextTierRank} GATES`}
+                </Text>
+                <Text style={styles.nextTierSub}>Raise your stats to unlock these gates</Text>
+              </View>
+              <View style={[styles.nextTierBadge, { borderColor: DUNGEON_RANK_COLORS[nextTierRank] }]}>
+                <Text style={[styles.nextTierBadgeTxt, { color: DUNGEON_RANK_COLORS[nextTierRank] }]}>LOCKED</Text>
+              </View>
+            </View>
+            {grouped[nextTierRank].map((dungeon) => (
+              <NextTierCard key={dungeon.id} dungeon={dungeon} stats={stats} totalDistance={totalDistance} />
+            ))}
+          </>
+        )}
 
         <Spacer size="xl" />
       </ScrollView>
@@ -670,6 +706,105 @@ function DungeonCard({
 }
 
 // ---------------------------------------------------------------------------
+// NextTierCard — teaser card for the rank above the player's current rank
+// ---------------------------------------------------------------------------
+
+function NextTierCard({ dungeon, stats, totalDistance }: {
+  dungeon: DungeonEntry
+  stats: Record<string, number>
+  totalDistance: number
+}) {
+  const rankColor = DUNGEON_RANK_COLORS[dungeon.rank]
+
+  const reqs: { key: string; have: number; need: number; suffix: string; source?: string }[] = []
+  if (totalDistance < dungeon.minDistanceKm) {
+    reqs.push({ key: 'DIST', have: totalDistance, need: dungeon.minDistanceKm, suffix: ' km' })
+  }
+  for (const [k, v] of Object.entries(dungeon.statRequirements)) {
+    reqs.push({ key: k, have: stats[k] ?? 0, need: v as number, suffix: '', source: STAT_SOURCES[k as StatKey] })
+  }
+
+  return (
+    <View style={[nextStyles.card, { borderColor: rankColor + '35' }]}>
+      <View style={nextStyles.topRow}>
+        <View style={[nextStyles.rankStripe, { backgroundColor: rankColor + '55' }]} />
+        <View style={nextStyles.info}>
+          <View style={nextStyles.nameRow}>
+            <DungeonRankBadge rank={dungeon.rank} size="sm" />
+            <Text style={nextStyles.name} numberOfLines={1}>{dungeon.name.toUpperCase()}</Text>
+          </View>
+          <Text style={nextStyles.desc} numberOfLines={1}>{dungeon.description}</Text>
+        </View>
+        <Text style={nextStyles.lockIcon}>⊘</Text>
+      </View>
+
+      {reqs.length > 0 && (
+        <View style={nextStyles.reqSection}>
+          {reqs.map(({ key, have, need, suffix, source }) => {
+            const pct = Math.min(100, need > 0 ? (have / need) * 100 : 100)
+            return (
+              <View key={key} style={nextStyles.reqItem}>
+                <View style={nextStyles.reqLabelRow}>
+                  <Text style={nextStyles.reqKey}>{key}</Text>
+                  <Text style={nextStyles.reqProgress}>{`${have.toFixed(0)} / ${need}${suffix}`}</Text>
+                  {have < need && (
+                    <Text style={nextStyles.reqNeeded}>{`  +${(need - have).toFixed(0)} needed`}</Text>
+                  )}
+                </View>
+                <View style={nextStyles.reqTrack}>
+                  <View style={[nextStyles.reqFill, {
+                    width: `${pct}%` as any,
+                    backgroundColor: pct >= 100 ? COLORS.success : rankColor + '70',
+                  }]} />
+                </View>
+                {source && <Text style={nextStyles.reqSource}>from: {source}</Text>}
+              </View>
+            )
+          })}
+        </View>
+      )}
+    </View>
+  )
+}
+
+const nextStyles = StyleSheet.create({
+  card: {
+    borderWidth: BORDER.thin,
+    borderRadius: RADIUS.slight,
+    marginBottom: SPACING.sm,
+    overflow: 'hidden',
+    opacity: 0.72,
+    backgroundColor: COLORS.locked,
+  },
+  topRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.sm, gap: SPACING.sm },
+  rankStripe: { width: 3, alignSelf: 'stretch', borderRadius: 2, minHeight: 40 },
+  info: { flex: 1, gap: 4 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  name: {
+    fontFamily: FONTS.display, fontSize: FONT_SIZES.sm,
+    color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.normal, flex: 1,
+  },
+  desc: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textTertiary, lineHeight: FONT_SIZES.xs * 1.6 },
+  lockIcon: { fontSize: 18, color: COLORS.borderMid, paddingRight: SPACING.sm },
+  reqSection: {
+    paddingHorizontal: SPACING.md, paddingBottom: SPACING.sm, paddingTop: SPACING.xs,
+    gap: SPACING.xs + 2,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.borderLow,
+  },
+  reqItem: { gap: 3 },
+  reqLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  reqKey: {
+    fontFamily: FONTS.display, fontSize: FONT_SIZES.xs,
+    color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.tight, width: 36,
+  },
+  reqProgress: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
+  reqNeeded: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.systemAlert },
+  reqTrack: { height: 3, backgroundColor: COLORS.surfaceHigh, borderRadius: 2, overflow: 'hidden' },
+  reqFill: { height: 3, borderRadius: 2 },
+  reqSource: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, fontStyle: 'italic' },
+})
+
+// ---------------------------------------------------------------------------
 // Styles
 // ---------------------------------------------------------------------------
 
@@ -687,6 +822,14 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.sm,
     color: COLORS.textPrimary,
   },
+  hunterRankRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.xs,
+  },
+  hunterRankPill: {
+    borderWidth: BORDER.thin, borderRadius: RADIUS.sharp,
+    paddingHorizontal: SPACING.sm, paddingVertical: 3,
+  },
+  hunterRankTxt: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xs, letterSpacing: LETTER_SPACING.wide },
   rankHeader: {
     borderLeftWidth: 3,
     paddingLeft: SPACING.sm,
@@ -698,6 +841,20 @@ const styles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     letterSpacing: LETTER_SPACING.extraWide,
   },
+  nextTierHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    marginBottom: SPACING.sm, paddingVertical: SPACING.xs,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.borderMid,
+  },
+  nextTierStripe: { width: 3, height: 32, borderRadius: 2 },
+  nextTierInfo: { flex: 1 },
+  nextTierTitle: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xs, letterSpacing: LETTER_SPACING.extraWide },
+  nextTierSub: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, marginTop: 2 },
+  nextTierBadge: {
+    borderWidth: BORDER.thin, borderRadius: RADIUS.sharp,
+    paddingHorizontal: SPACING.xs + 2, paddingVertical: 2,
+  },
+  nextTierBadgeTxt: { fontFamily: FONTS.mono, fontSize: 9, letterSpacing: LETTER_SPACING.wide },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

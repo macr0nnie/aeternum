@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, ResourceType } from '@/types'
+import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, FortressBuildingKey, FortressCrop, ResourceType } from '@/types'
 import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS } from '@/types'
 import type { PublicPlayer } from '@/lib/supabase'
 
@@ -53,9 +53,13 @@ interface AeternumState {
   // Territory (persisted resources; territories fetched from server)
   resources: PlayerResources
   fortress: Fortress
+  crops: FortressCrop[]
   myTerritories: Territory[]
   nearbyTerritories: Territory[]
   nearbyNodes: ResourceNode[]
+
+  // Unlocked skills
+  unlockedSkillIds: string[]
 
   // Actions — auth/player
   setUserId: (id: string | null) => void
@@ -97,7 +101,9 @@ interface AeternumState {
   addResource: (type: ResourceType, amount: number) => void
   spendResources: (cost: Partial<PlayerResources>) => boolean
   setFortress: (f: Fortress) => void
-  upgradeFortressBuilding: (key: keyof Omit<Fortress, 'level'>) => void
+  upgradeFortressBuilding: (key: FortressBuildingKey) => void
+  setCrops: (crops: FortressCrop[]) => void
+  unlockSkill: (skillId: string) => void
   setMyTerritories: (t: Territory[]) => void
   addMyTerritory: (t: Territory) => void
   setNearbyTerritories: (t: Territory[]) => void
@@ -119,6 +125,7 @@ const INITIAL_TRANSIENT = {
   partyMembers: [] as PublicPlayer[],
   partyInvites: [] as PartyInvite[],
   lastCoOpResult: null as CoOpGateResponse | null,
+  crops: [] as FortressCrop[],
   myTerritories: [] as Territory[],
   nearbyTerritories: [] as Territory[],
   nearbyNodes: [] as ResourceNode[],
@@ -132,6 +139,7 @@ const INITIAL_PERSISTENT = {
   inventory: EMPTY_INVENTORY,
   equipped: EMPTY_LOADOUT,
   unlockedTalentIds: [],
+  unlockedSkillIds: [],
   resources: EMPTY_RESOURCES,
   fortress: EMPTY_FORTRESS,
 }
@@ -311,7 +319,11 @@ export const useStore = create<AeternumState>()(
         return true
       },
       setFortress: (f) => set({ fortress: f }),
-      upgradeFortressBuilding: (key) => set((s) => ({ fortress: { ...s.fortress, [key]: s.fortress[key] + 1 } })),
+      upgradeFortressBuilding: (key) => set((s) => ({ fortress: { ...s.fortress, [key]: (s.fortress[key] as number) + 1 } })),
+      setCrops: (crops) => set({ crops }),
+      unlockSkill: (skillId) => set((s) => ({
+        unlockedSkillIds: s.unlockedSkillIds.includes(skillId) ? s.unlockedSkillIds : [...s.unlockedSkillIds, skillId],
+      })),
       setMyTerritories: (t) => set({ myTerritories: t }),
       addMyTerritory: (t) => set((s) => ({ myTerritories: [t, ...s.myTerritories] })),
       setNearbyTerritories: (t) => set({ nearbyTerritories: t }),
@@ -330,6 +342,7 @@ export const useStore = create<AeternumState>()(
         inventory: state.inventory,
         equipped: state.equipped,
         unlockedTalentIds: state.unlockedTalentIds,
+        unlockedSkillIds: state.unlockedSkillIds,
         resources: state.resources,
         fortress: state.fortress,
       }),
@@ -359,6 +372,8 @@ export const selectPartyInvites = (s: AeternumState) => s.partyInvites
 export const selectLastCoOpResult = (s: AeternumState) => s.lastCoOpResult
 export const selectResources = (s: AeternumState) => s.resources
 export const selectFortress = (s: AeternumState) => s.fortress
+export const selectCrops = (s: AeternumState) => s.crops
+export const selectUnlockedSkillIds = (s: AeternumState) => s.unlockedSkillIds
 export const selectMyTerritories = (s: AeternumState) => s.myTerritories
 export const selectNearbyTerritories = (s: AeternumState) => s.nearbyTerritories
 export const selectNearbyNodes = (s: AeternumState) => s.nearbyNodes

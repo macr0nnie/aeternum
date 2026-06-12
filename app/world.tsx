@@ -33,8 +33,8 @@ import {
   HARVEST_COOLDOWN_H, HARVEST_RANGE_M, ATTACK_RANGE_KM,
 } from '@/types'
 
-// Free dark basemap — CARTO Dark Matter (no API key required)
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
+// Free dark basemap — no-labels variant keeps the game elements as the visual focus
+const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json'
 
 // =============================================================================
 // Helpers
@@ -434,14 +434,23 @@ export default function WorldScreen() {
     })
   }, [])
 
-  // Single GPS ping — called on demand (Scan button, Claim button)
+  // Single GPS ping — called on demand (Scan button, Claim button).
+  // On Android emulator without a mock location, getCurrentPositionAsync never rejects —
+  // it just hangs. We race it against a 6 s timeout then fall back to the last cached fix.
   async function getLocation(): Promise<{ lat: number; lng: number } | null> {
     try {
-      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low })
-      return { lat: pos.coords.latitude, lng: pos.coords.longitude }
-    } catch {
-      return null
-    }
+      const pos = await Promise.race<Location.LocationObject | null>([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Low }),
+        new Promise<null>(resolve => setTimeout(() => resolve(null), 6000)),
+      ])
+      if (pos) return { lat: pos.coords.latitude, lng: pos.coords.longitude }
+    } catch {}
+    // Last-known fallback — works on emulator that previously had a mock location set
+    try {
+      const last = await Location.getLastKnownPositionAsync()
+      if (last) return { lat: last.coords.latitude, lng: last.coords.longitude }
+    } catch {}
+    return null
   }
 
   // Fetch nearby territories + nodes centred on (lat, lng)
@@ -464,7 +473,7 @@ export default function WorldScreen() {
     if (loc) {
       setLocation(loc)
       await loadMapData(loc.lat, loc.lng)
-      cameraRef.current?.jumpTo({ center: coord(loc.lat, loc.lng), zoom: 14 })
+      cameraRef.current?.jumpTo({ center: coord(loc.lat, loc.lng), zoom: 13 })
     } else {
       Alert.alert('Location Unavailable', 'Could not get your position. On an emulator, set a mock location via Extended Controls → Location.')
     }
@@ -549,7 +558,7 @@ export default function WorldScreen() {
       >
         <Camera
           ref={cameraRef}
-          initialViewState={{ center: coord(mapCenter.lat, mapCenter.lng), zoom: 14 }}
+          initialViewState={{ center: coord(mapCenter.lat, mapCenter.lng), zoom: 13 }}
         />
         <UserLocation />
 
