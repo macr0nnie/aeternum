@@ -24,6 +24,10 @@
       "channel": "alpha",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://lswemgatrhamketsbnks.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxzd2VtZ2F0cmhhbWtldHNibmtzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMTIxMDAsImV4cCI6MjA5NjU4ODEwMH0.TcUnDrdB3FyFqcWiXLT5EdlbNhen3oSFLxc45ay_gIk"
       }
     },
     "production": {
