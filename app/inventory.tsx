@@ -6,9 +6,10 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
 } from 'react-native'
 import { useStore, selectPlayer, selectInventory, selectEquipped } from '@/store/useStore'
-import { SystemWindow, CornerPanel, SectionHeader, DungeonRankBadge, Label } from '@/components/UI'
+import { SystemWindow, CornerPanel, SectionHeader } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING, rarityColor } from '@/theme/tokens'
 import type { GearItem, Relic, GearSlot, GearLoadout } from '@/types'
+import { gearStatBonuses } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Stat diff helper
@@ -21,15 +22,15 @@ function statDiff(
 ): number {
   const slot = candidate.slot as keyof Omit<GearLoadout, 'relic'>
   const current = equipped[slot]
-  const candidateVal = (candidate.statBonuses as Record<string, number>)[statKey] ?? 0
-  const currentVal = current ? ((current.statBonuses as Record<string, number>)[statKey] ?? 0) : 0
+  const candidateVal = (gearStatBonuses(candidate) as Record<string, number>)[statKey] ?? 0
+  const currentVal = (gearStatBonuses(current) as Record<string, number>)[statKey] ?? 0
   return candidateVal - currentVal
 }
 
 function allStatKeys(item: GearItem, compare: GearItem | null): string[] {
   const keys = new Set([
-    ...Object.keys(item.statBonuses),
-    ...(compare ? Object.keys(compare.statBonuses) : []),
+    ...Object.keys(gearStatBonuses(item)),
+    ...Object.keys(gearStatBonuses(compare)),
   ])
   return Array.from(keys)
 }
@@ -279,7 +280,7 @@ export default function InventoryScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.bagName, { color: rarityColor(g.rarity) }]}>{g.name}</Text>
                   <Text style={styles.bagSub}>
-                    {Object.entries(g.statBonuses).map(([k, v]) => `${k} +${v}`).join('  ')}
+                    {Object.entries(gearStatBonuses(g)).map(([k, v]) => `${k} +${v}`).join('  ')}
                   </Text>
                 </View>
                 <RarityBadge rarity={g.rarity} />

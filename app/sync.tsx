@@ -2,40 +2,67 @@
 // Aeternum — Run Sync Screen
 // =============================================================================
 
+import { useState } from 'react'
 import { View, Text, ScrollView, StyleSheet, Platform } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useStore, selectSyncState, selectPlayer, selectLatestRunResult } from '@/store/useStore'
+import { useStore, selectSyncState, selectPlayer, selectLatestRunResult, selectLastRunSummary } from '@/store/useStore'
+import { formatDuration } from '@/lib/runSync'
 import { syncRun, SyncError } from '@/lib/runSync'
-import { Heading, Label, Button, Spacer, Divider, SystemWindow, StatChip } from '@/components/UI'
+import { Heading, Label, Button, Spacer, Divider, SystemWindow, StatChip, Icon } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, elementAccent } from '@/theme/tokens'
 import type { Element } from '@/types'
+
+// A single labelled activity metric (distance/steps/duration/HR).
+function RunMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.metricCell}>
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.metricLabel}>{label}</Text>
+    </View>
+  )
+}
 
 export default function SyncScreen() {
   const syncState = useStore(selectSyncState)
   const player = useStore(selectPlayer)
   const latestResult = useStore(selectLatestRunResult)
+  const lastRunSummary = useStore(selectLastRunSummary)
   const { setSyncState, setSyncError, applyRunResult, syncError } = useStore()
 
   const element = (player?.primary_element as Element | null) ?? null
   const palette = elementAccent(element)
 
+  // True when the last error was specifically "health not connected", so we can
+  // offer a one-tap Connect button instead of a dead-end message.
+  const [needsHealth, setNeedsHealth] = useState(false)
+
   async function handleSync() {
     if (!player) return
     setSyncState('reading')
     setSyncError(null)
+    setNeedsHealth(false)
     try {
       setSyncState('uploading')
-      const result = await syncRun(player.id)
-      applyRunResult(result)
+      const { result, summary } = await syncRun(player.id)
+      applyRunResult(result, summary)
     } catch (err) {
       setSyncState('error')
       setSyncError(err instanceof SyncError ? err.message : 'An unexpected error occurred.')
+      if (err instanceof SyncError && err.code === 'HEALTH_CONNECT_UNAVAILABLE') setNeedsHealth(true)
     }
+  }
+
+  // Launch the in-app health-connect flow, then retry the sync.
+  async function handleConnectHealth() {
+    const { connectHealth } = await import('@/lib/health')
+    const status = await connectHealth()
+    if (status === 'granted') handleSync()
   }
 
   function handleReset() {
     setSyncState('idle')
     setSyncError(null)
+    setNeedsHealth(false)
   }
 
   const isActive = syncState === 'reading' || syncState === 'uploading'
@@ -111,6 +138,28 @@ export default function SyncScreen() {
                 </Text>
               </Text>
               <Spacer size="sm" />
+
+              {/* Activity metrics from this run */}
+              {lastRunSummary && (
+                <>
+                  <Label variant="tertiary" size="xs">This Run</Label>
+                  <Spacer size="xs" />
+                  <View style={styles.metricRow}>
+                    <RunMetric label="DISTANCE" value={`${lastRunSummary.distance_km.toFixed(2)} km`} />
+                    <RunMetric label="STEPS" value={lastRunSummary.steps.toLocaleString()} />
+                  </View>
+                  <Spacer size="xs" />
+                  <View style={styles.metricRow}>
+                    <RunMetric label="DURATION" value={formatDuration(lastRunSummary.duration_seconds)} />
+                    <RunMetric
+                      label="AVG HR"
+                      value={lastRunSummary.avg_heart_rate != null ? `${lastRunSummary.avg_heart_rate} bpm` : '—'}
+                    />
+                  </View>
+                  <Spacer size="md" />
+                </>
+              )}
+
               {Object.keys(latestResult.stat_gains).length > 0 && (
                 <>
                   <Label variant="tertiary" size="xs">Stat Gains</Label>
@@ -144,7 +193,7 @@ export default function SyncScreen() {
               {latestResult.flag_reason && (
                 <>
                   <Spacer size="sm" />
-                  <Text style={styles.flagText}>{`⚠ ${latestResult.flag_reason}`}</Text>
+                  <Text style={styles.flagText}><Icon name="alert" size={12} color={COLORS.warning} /> {latestResult.flag_reason}</Text>
                 </>
               )}
             </View>
@@ -167,13 +216,17 @@ export default function SyncScreen() {
         {/* Action */}
         {(syncState === 'idle' || syncState === 'error') && (
           <>
-            <Button
-              label={syncState === 'error' ? 'Retry Sync' : '◆  Sync Run  ◆'}
-              element={element}
-              variant={syncState === 'error' ? 'ghost' : 'primary'}
-              onPress={handleSync}
-              fullWidth
-            />
+            {needsHealth ? (
+              <Button label="◆  Connect Health  ◆" element={element} variant="primary" onPress={handleConnectHealth} fullWidth />
+            ) : (
+              <Button
+                label={syncState === 'error' ? 'Retry Sync' : '◆  Sync Run  ◆'}
+                element={element}
+                variant={syncState === 'error' ? 'ghost' : 'primary'}
+                onPress={handleSync}
+                fullWidth
+              />
+            )}
             {syncState === 'error' && (
               <>
                 <Spacer size="sm" />
@@ -238,6 +291,14 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm },
   dot: { width: 6, height: 6, borderRadius: 1, opacity: 0.7 },
   statRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs },
+  metricRow: { flexDirection: 'row', gap: SPACING.sm },
+  metricCell: {
+    flex: 1, borderWidth: 1, borderColor: COLORS.borderLow, borderRadius: 4,
+    paddingVertical: SPACING.sm, paddingHorizontal: SPACING.sm, alignItems: 'center',
+    backgroundColor: COLORS.surfaceHigh,
+  },
+  metricValue: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.md, color: COLORS.textPrimary, fontWeight: '700' },
+  metricLabel: { fontFamily: FONTS.mono, fontSize: 9, color: COLORS.textTertiary, letterSpacing: LETTER_SPACING.wide, marginTop: 2 },
   rewardLine: {
     fontFamily: FONTS.display,
     fontSize: FONT_SIZES.sm,

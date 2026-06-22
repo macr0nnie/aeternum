@@ -10,7 +10,14 @@
 
 import { supabase } from '@/lib/supabase'
 import { checkHealth, readLastRun } from '@/lib/health'
-import type { SyncRunRequest, SyncRunResponse } from '@/types'
+import type { SyncRunRequest, SyncRunResponse, RunSummary } from '@/types'
+
+// What syncRun returns: the server's resolved result plus the raw activity
+// metrics (distance/steps/HR/duration) for display.
+export interface SyncRunOutcome {
+  result: SyncRunResponse
+  summary: RunSummary
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -37,12 +44,12 @@ export class SyncError extends Error {
 // Full sync pipeline. Throws SyncError on any failure — callers should catch
 // and present an appropriate UI message.
 
-export async function syncRun(playerId: string): Promise<SyncRunResponse> {
+export async function syncRun(playerId: string): Promise<SyncRunOutcome> {
   // 1. Check health permissions (no dialog — safe from any context)
   const ready = await checkHealth()
   if (!ready) {
     throw new SyncError(
-      'Health permissions not granted. Open Settings to allow Health Connect access.',
+      'Connect your activity to sync runs — tap “Connect Health” to grant access.',
       'HEALTH_CONNECT_UNAVAILABLE',
     )
   }
@@ -67,6 +74,14 @@ export async function syncRun(playerId: string): Promise<SyncRunResponse> {
     (new Date(session.endTime).getTime() - new Date(session.startTime).getTime()) / 1000,
   )
   const distanceKm = session.distanceMeters / 1000
+
+  const summary: RunSummary = {
+    distance_km: Number(distanceKm.toFixed(3)),
+    duration_seconds: durationSeconds,
+    steps: session.steps,
+    avg_heart_rate: session.avgHeartRateBpm,
+    ended_at: session.endTime,
+  }
 
   const payload: SyncRunRequest = {
     player_id: playerId,
@@ -96,7 +111,7 @@ export async function syncRun(playerId: string): Promise<SyncRunResponse> {
       throw new SyncError('Empty response from server.', 'EDGE_FUNCTION_FAILED')
     }
 
-    return data
+    return { result: data, summary }
   } catch (err) {
     if (err instanceof SyncError) throw err
     throw new SyncError(

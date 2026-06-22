@@ -6,6 +6,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TextInput, StyleSheet,
   ActivityIndicator, RefreshControl,
 } from 'react-native'
+import { useRouter } from 'expo-router'
 import { useStore, selectPlayer, selectPartyMembers, selectPartyInvites } from '@/store/useStore'
 import { SystemWindow, CornerPanel, SectionHeader, DungeonRankBadge } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING, elementAccent } from '@/theme/tokens'
@@ -26,9 +27,7 @@ const MemberCard: React.FC<{ member: PublicPlayer }> = ({ member }) => {
         <View style={cardStyles.info}>
           <Text style={cardStyles.name}>{member.username}</Text>
           <Text style={cardStyles.sub}>
-            {member.primary_element
-              ? member.primary_element.charAt(0).toUpperCase() + member.primary_element.slice(1)
-              : 'Unawakened'}{' · '}{member.total_distance_km.toFixed(1)} km{' · '}PWR {member.total_stat_power}
+            {`Rank ${member.rank ?? 'F'}`}{' · '}{member.total_distance_km.toFixed(1)} km{' · '}PWR {member.total_stat_power}
           </Text>
         </View>
       </View>
@@ -123,6 +122,7 @@ const srStyles = StyleSheet.create({
 })
 
 export default function PartyScreen() {
+  const router = useRouter()
   const player = useStore(selectPlayer)
   const partyMembers = useStore(selectPartyMembers)
   const partyInvites = useStore(selectPartyInvites)
@@ -136,15 +136,20 @@ export default function PartyScreen() {
 
   const loadPartyData = useCallback(async () => {
     if (!player) return
-    const [members, invites] = await Promise.all([fetchPartyMembers(player.id), fetchPartyInvites(player.id)])
-    setPartyMembers(members)
-    if (invites.data) setPartyInvites(invites.data as PartyInvite[])
+    try {
+      const [members, invites] = await Promise.all([fetchPartyMembers(player.id), fetchPartyInvites(player.id)])
+      setPartyMembers(members)
+      if (invites.data) setPartyInvites(invites.data as PartyInvite[])
+    } catch (err) {
+      console.error('[party] load failed', err)
+    }
   }, [player, setPartyMembers, setPartyInvites])
 
   useEffect(() => { loadPartyData() }, [loadPartyData])
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true); await loadPartyData(); setRefreshing(false)
+    setRefreshing(true)
+    try { await loadPartyData() } finally { setRefreshing(false) }
   }, [loadPartyData])
 
   async function handleSearch(text: string) {
@@ -184,7 +189,13 @@ export default function PartyScreen() {
           </Text>
         </View>
 
-        <SectionHeader title="FIND HUNTERS" />
+        {/* Leaderboard entry — the /leaderboard screen is otherwise unreachable. */}
+        <TouchableOpacity style={styles.leaderboardBtn} onPress={() => router.push('/leaderboard')} activeOpacity={0.8}>
+          <Text style={styles.leaderboardTxt}>◆  LEADERBOARDS</Text>
+          <Text style={styles.leaderboardChevron}>›</Text>
+        </TouchableOpacity>
+
+        <SectionHeader title="FIND ADVENTURERS" />
         <View style={styles.searchRow}>
           <TextInput
             style={styles.searchInput}
@@ -227,7 +238,7 @@ export default function PartyScreen() {
         {partyMembers.length === 0 ? (
           <SystemWindow title="NO PARTY YET" variant="info">
             <Text style={styles.emptyText}>
-              Search for hunters by username and send an invite. Once accepted, you can tackle C-rank+ gates together — pooling your stats for a shared advantage.
+              Search for adventurers by username and send an invite. Once accepted, you can tackle C-rank+ rifts together — pooling your stats for a shared advantage.
             </Text>
           </SystemWindow>
         ) : (
@@ -246,6 +257,14 @@ const styles = StyleSheet.create({
   header: { alignItems: 'center', marginBottom: SPACING.lg },
   title: { fontFamily: FONTS.display, fontSize: FONT_SIZES.xl, color: COLORS.system, letterSpacing: LETTER_SPACING.widest },
   sub: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, marginTop: 4, letterSpacing: LETTER_SPACING.wide },
+  leaderboardBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: COLORS.surfaceHigh, borderWidth: BORDER.thin, borderColor: COLORS.systemGold,
+    borderRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm,
+    marginVertical: SPACING.sm,
+  },
+  leaderboardTxt: { fontFamily: FONTS.display, fontSize: FONT_SIZES.sm, color: COLORS.systemGold, letterSpacing: LETTER_SPACING.wide },
+  leaderboardChevron: { fontFamily: FONTS.display, fontSize: FONT_SIZES.lg, color: COLORS.systemGold },
   searchRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.sm },
   searchInput: {
     flex: 1, backgroundColor: COLORS.surface, borderWidth: BORDER.thin, borderColor: COLORS.systemBorder,

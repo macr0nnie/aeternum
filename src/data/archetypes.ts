@@ -1,14 +1,3 @@
-// =============================================================================
-// Aeternum — Archetype Definitions
-// =============================================================================
-// Archetypes are discovered, never selected. The detection function runs
-// against the player's accumulated traits and returns every archetype they
-// have earned, sorted highest-rank first.
-//
-// Tier thresholds are tuned so that a new player can discover their first
-// archetype within 1–2 weeks of consistent play, while the final tier
-// represents a meaningful long-term commitment to a playstyle.
-// =============================================================================
 
 import type {
   ArchetypeDefinition, ArchetypeId, ActiveArchetype,
@@ -37,7 +26,7 @@ export const ARCHETYPES: ArchetypeDefinition[] = [
       { rank: 2, name: 'Vanguard II',     traitThresholds: { strength: 40,  conquest: 28  } },
       { rank: 3, name: 'Vanguard III',    traitThresholds: { strength: 80,  conquest: 55  } },
       { rank: 4, name: 'Warlord',         traitThresholds: { strength: 130, conquest: 90  } },
-      { rank: 5, name: 'Iron Sovereign',  traitThresholds: { strength: 200, conquest: 145 } },
+      { rank: 5, name: 'Iron Grandmaster',  traitThresholds: { strength: 200, conquest: 145 } },
     ],
   },
   {

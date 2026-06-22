@@ -12,50 +12,31 @@ import {
   Text,
   TextInput,
   ScrollView,
-  TouchableOpacity,
   StyleSheet,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectPlayer } from '@/store/useStore'
 import { updatePlayer, isSupabaseConfigured } from '@/lib/supabase'
-import { SystemWindow, CornerPanel, Button, Spacer, Label } from '@/components/UI'
+import { SystemWindow, Button, Spacer, Label } from '@/components/UI'
 import {
   COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS,
-  elementAccent, SHADOWS,
 } from '@/theme/tokens'
-import { ELEMENTS, ELEMENT_LABELS, type Element } from '@/types'
 
 interface CharacterSetupProps {
   onComplete: () => void
 }
 
-// Element icons / descriptions for the selection grid
-const ELEMENT_META: Record<Element, { icon: string; desc: string; statBonus: string }> = {
-  fire:      { icon: '🔥', desc: 'Raw power and devastation',  statBonus: '+ATK' },
-  water:     { icon: '💧', desc: 'Flow and adaptability',       statBonus: '+SPD' },
-  nature:    { icon: '🌿', desc: 'Growth and endurance',        statBonus: '+END' },
-  arcane:    { icon: '🔮', desc: 'Intellect and mystery',       statBonus: '+INT' },
-  shadow:    { icon: '🌑', desc: 'Concealment and cunning',     statBonus: '+LCK' },
-  frost:     { icon: '❄️', desc: 'Stillness and precision',     statBonus: '+PER' },
-  earth:     { icon: '⛰️', desc: 'Stability and defence',       statBonus: '+DEF' },
-  wind:      { icon: '🌪️', desc: 'Speed and momentum',          statBonus: '+SPD' },
-  lightning: { icon: '⚡', desc: 'Strikes fast and hits hard',  statBonus: '+ATK' },
-  holy:      { icon: '✨', desc: 'Recovery and divine power',   statBonus: '+END' },
-}
-
 export const CharacterSetup: React.FC<CharacterSetupProps> = ({ onComplete }) => {
   const player = useStore(selectPlayer)
-  const { setPlayer, setCharacterSetupDone, completeQuest } = useStore()
+  const { setPlayer, setCharacterSetupDone } = useStore()
 
-  const [step, setStep] = useState<'name' | 'element'>('name')
   const [username, setUsername] = useState('')
-  const [selectedElement, setSelectedElement] = useState<Element | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const palette = elementAccent(selectedElement)
+  async function handleComplete() {
+    if (!player) return
 
-  async function handleConfirmName() {
     const trimmed = username.trim()
     if (trimmed.length < 2) {
       setError('Name must be at least 2 characters.')
@@ -65,41 +46,41 @@ export const CharacterSetup: React.FC<CharacterSetupProps> = ({ onComplete }) =>
       setError('Name must be 20 characters or fewer.')
       return
     }
-    setError(null)
-    setStep('element')
-  }
-
-  async function handleComplete() {
-    if (!selectedElement) {
-      setError('Choose your element to proceed.')
-      return
-    }
-    if (!player) return
 
     setLoading(true)
     setError(null)
 
-    const trimmed = username.trim() || player.username
-    const updates = {
-      username: trimmed,
-      primary_element: selectedElement,
-    }
+    const updates = { username: trimmed }
+
+    // Offline guest players exist only on-device (id `offline-…`) — never try to
+    // persist them to the backend, and skip the network for any unconfigured
+    // backend. Otherwise updatePlayer hits an unreachable/unknown row and hangs,
+    // leaving setup stuck on its spinner so the app never loads.
+    const isOfflinePlayer = player.id.startsWith('offline-')
 
     try {
-      if (isSupabaseConfigured) {
-        const { data, error: updateErr } = await updatePlayer(player.id, updates)
-        if (updateErr) {
-          setError('Could not save. Continuing offline.')
+      if (isSupabaseConfigured && !isOfflinePlayer) {
+        // Bound the save so an unreachable backend can't hang character setup.
+        const TIMEOUT = Symbol('timeout')
+        const result = await Promise.race([
+          updatePlayer(player.id, updates),
+          new Promise<typeof TIMEOUT>((resolve) => setTimeout(() => resolve(TIMEOUT), 8000)),
+        ])
+        if (result === TIMEOUT) {
+          setError('Could not reach server — continuing offline.')
+          setPlayer({ ...player, ...updates })
+        } else {
+          if (result.error) setError('Could not save. Continuing offline.')
+          if (result.data) setPlayer(result.data as typeof player)
+          else setPlayer({ ...player, ...updates })
         }
-        if (data) setPlayer(data as typeof player)
-        else setPlayer({ ...player, ...updates })
       } else {
         setPlayer({ ...player, ...updates })
       }
 
-      // Award setup quest rewards
-      completeQuest('q_first_steps', { END: 1, CHA: 1 })
-      completeQuest('q_name_path', { CHA: 2 })
+      // NOTE: q_first_steps / q_name_path are claimed by the player on the Quest
+      // Board (with reward feedback) — do NOT auto-claim them here, or those board
+      // missions become dead taps that grant nothing visible.
 
       setCharacterSetupDone(true)
       onComplete()
@@ -124,144 +105,53 @@ export const CharacterSetup: React.FC<CharacterSetupProps> = ({ onComplete }) =>
         <View style={styles.header}>
           <Text style={styles.systemTag}>◆ SYSTEM ◆</Text>
           <Spacer size="sm" />
-          <Text style={styles.title}>AWAKENING</Text>
+          <Text style={styles.title}>ASCENSION</Text>
           <View style={styles.titleUnderline} />
           <Spacer size="sm" />
           <Text style={styles.subtitle}>
-            A new hunter has been detected.{'\n'}Initialising profile...
+            A new adventurer has been detected.{'\n'}Initialising profile...
           </Text>
         </View>
 
         <Spacer size="xl" />
 
-        {/* Step: Name */}
-        {step === 'name' && (
-          <SystemWindow title="COMMANDER DESIGNATION">
-            <Label variant="secondary" size="xs">
-              Choose the name you will carry into every gate.
-            </Label>
-            <Spacer size="md" />
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputPrefix}>{'>'}</Text>
-              <TextInput
-                style={styles.input}
-                value={username}
-                onChangeText={setUsername}
-                placeholder="Enter commander name"
-                placeholderTextColor={COLORS.textTertiary}
-                maxLength={20}
-                autoFocus
-                autoCapitalize="words"
-                returnKeyType="done"
-                onSubmitEditing={handleConfirmName}
-              />
-            </View>
-            {error && (
-              <>
-                <Spacer size="sm" />
-                <Label variant="system" size="xs">{error}</Label>
-              </>
-            )}
-            <Spacer size="lg" />
-            <Button
-              label="Confirm Name"
-              variant="system"
-              onPress={handleConfirmName}
-              fullWidth
+        {/* Name + begin — identity (class/pathway) is earned through play, not chosen */}
+        <SystemWindow title="ADVENTURER DESIGNATION">
+          <Label variant="secondary" size="xs">
+            Choose the name you will carry into every rift. Your path is forged by
+            what you do — not chosen here.
+          </Label>
+          <Spacer size="md" />
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputPrefix}>{'>'}</Text>
+            <TextInput
+              style={styles.input}
+              value={username}
+              onChangeText={setUsername}
+              placeholder="Enter your name"
+              placeholderTextColor={COLORS.textTertiary}
+              maxLength={20}
+              autoFocus
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={handleComplete}
             />
-          </SystemWindow>
-        )}
-
-        {/* Step: Element */}
-        {step === 'element' && (
-          <>
-            <SystemWindow title="ELEMENT SELECTION">
-              <Label variant="secondary" size="xs">
-                Your element shapes your power. Choose wisely — it cannot be changed early.
-              </Label>
+          </View>
+          {error && (
+            <>
               <Spacer size="sm" />
-              <Label variant="system" size="xs">
-                {`Commander: ${username.trim() || player?.username || ''}`}
-              </Label>
-            </SystemWindow>
-
-            <Spacer size="md" />
-
-            {/* Element grid */}
-            <View style={styles.elementGrid}>
-              {ELEMENTS.map((el) => {
-                const meta = ELEMENT_META[el]
-                const elPalette = elementAccent(el)
-                const isSelected = selectedElement === el
-
-                return (
-                  <TouchableOpacity
-                    key={el}
-                    onPress={() => setSelectedElement(el)}
-                    activeOpacity={0.75}
-                    style={[
-                      styles.elementCard,
-                      {
-                        borderColor: isSelected ? elPalette.base : COLORS.borderMid,
-                        backgroundColor: isSelected ? elPalette.dim : COLORS.surface,
-                      },
-                      isSelected && { ...(SHADOWS.glowBlue as object), shadowColor: elPalette.base },
-                    ]}
-                  >
-                    <Text style={[styles.elementIcon, { color: elPalette.bright }]}>
-                      {meta.icon}
-                    </Text>
-                    <Text style={[styles.elementName, { color: isSelected ? elPalette.bright : COLORS.textPrimary }]}>
-                      {ELEMENT_LABELS[el].toUpperCase()}
-                    </Text>
-                    <Text style={[styles.elementBonus, { color: elPalette.base }]}>
-                      {meta.statBonus}
-                    </Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </View>
-
-            {/* Selected element description */}
-            {selectedElement && (
-              <>
-                <Spacer size="md" />
-                <CornerPanel color={palette.base} backgroundColor={palette.dim}>
-                  <Text style={[styles.elementDesc, { color: palette.bright }]}>
-                    {ELEMENT_META[selectedElement].desc.toUpperCase()}
-                  </Text>
-                  <Spacer size="xs" />
-                  <Text style={[styles.elementDescSub, { color: palette.base }]}>
-                    Primary bonus: {ELEMENT_META[selectedElement].statBonus}
-                  </Text>
-                </CornerPanel>
-              </>
-            )}
-
-            {error && (
-              <>
-                <Spacer size="sm" />
-                <Label variant="system" size="xs">{error}</Label>
-              </>
-            )}
-
-            <Spacer size="xl" />
-
-            <Button
-              label={selectedElement ? 'Begin Ascent' : 'Select an Element'}
-              element={selectedElement}
-              variant={selectedElement ? 'primary' : 'ghost'}
-              onPress={handleComplete}
-              loading={loading}
-              disabled={!selectedElement}
-              fullWidth
-            />
-            <Spacer size="sm" />
-            <TouchableOpacity onPress={() => setStep('name')}>
-              <Label variant="tertiary" size="xs">← Change name</Label>
-            </TouchableOpacity>
-          </>
-        )}
+              <Label variant="system" size="xs">{error}</Label>
+            </>
+          )}
+          <Spacer size="lg" />
+          <Button
+            label="Begin"
+            variant="system"
+            onPress={handleComplete}
+            loading={loading}
+            fullWidth
+          />
+        </SystemWindow>
 
         <Spacer size="xxxl" />
       </ScrollView>
@@ -333,41 +223,5 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     letterSpacing: LETTER_SPACING.wide,
     padding: 0,
-  },
-  elementGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-  },
-  elementCard: {
-    width: '47%',
-    borderWidth: BORDER.thin,
-    borderRadius: RADIUS.sharp,
-    padding: SPACING.md,
-    alignItems: 'flex-start',
-    gap: SPACING.xs,
-  },
-  elementIcon: {
-    fontSize: 20,
-    marginBottom: 2,
-  },
-  elementName: {
-    fontFamily: FONTS.display,
-    fontSize: FONT_SIZES.sm,
-    letterSpacing: LETTER_SPACING.wide,
-  },
-  elementBonus: {
-    fontFamily: FONTS.mono,
-    fontSize: FONT_SIZES.xs,
-  },
-  elementDesc: {
-    fontFamily: FONTS.display,
-    fontSize: FONT_SIZES.sm,
-    letterSpacing: LETTER_SPACING.normal,
-  },
-  elementDescSub: {
-    fontFamily: FONTS.mono,
-    fontSize: FONT_SIZES.xs,
-    letterSpacing: LETTER_SPACING.tight,
   },
 })

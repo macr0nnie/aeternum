@@ -10,6 +10,7 @@ import {
   COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING, SHADOWS,
 } from '@/theme/tokens'
 import { RARITY_COLORS, RARITY_LABELS, type DroppedReward } from '@/types'
+import { Icon } from '@/components/UI'
 
 // =============================================================================
 // Single reward card
@@ -174,7 +175,7 @@ export function RewardPopup({ rewards, title = 'REWARDS', onClose }: RewardPopup
 
         {/* Action button */}
         <TouchableOpacity style={popup.nextBtn} onPress={handleNext} activeOpacity={0.8}>
-          <Text style={popup.nextTxt}>{isLast ? '✓  CLAIM ALL' : '►  NEXT'}</Text>
+          <Text style={popup.nextTxt}><Icon name={isLast ? 'check' : 'play'} size={15} color={COLORS.system} />  {isLast ? 'CLAIM ALL' : 'NEXT'}</Text>
         </TouchableOpacity>
 
         {/* Skip all */}

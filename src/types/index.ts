@@ -31,10 +31,28 @@ export const STAT_LABELS: Record<StatKey, string> = {
   INT: 'Intellect',
   LCK: 'Luck',
   DEF: 'Defence',
-  END: 'Endurance',
+  END: 'Stamina',
   PER: 'Perception',
   CHA: 'Charisma',
 }
+
+// Max map-action stamina derived from the Stamina (END) stat.
+export const STAMINA_BASE = 50
+export const STAMINA_PER_POINT = 5
+export function maxStamina(staminaStat: number): number {
+  return STAMINA_BASE + staminaStat * STAMINA_PER_POINT
+}
+
+// Stamina cost per map action.
+export const STAMINA_COSTS = {
+  harvest: 5,
+  raid: 15,
+  claim: 25,
+  capture: 30,
+} as const
+
+// Stamina restored per km run (applied on sync).
+export const STAMINA_PER_KM = 20
 
 export const STAT_SOURCES: Record<StatKey, string> = {
   ATK: 'Boss kills',
@@ -42,7 +60,7 @@ export const STAT_SOURCES: Record<StatKey, string> = {
   INT: 'Arcane quests',
   LCK: 'Harvest quests',
   DEF: 'Party runs',
-  END: 'Long runs',
+  END: 'Long runs · powers map Stamina',
   PER: 'Exploration (Phase 2)',
   CHA: 'Party leadership',
 }
@@ -80,6 +98,9 @@ export const ELEMENT_LABELS: Record<Element, string> = {
   lightning: 'Lightning',
   holy:      'Holy',
 }
+
+// Element icons now live in ELEMENT_ICONS (MaterialCommunityIcons names) further
+// down this file, rendered via <Icon name={...}> from src/components/UI.
 
 // ---------------------------------------------------------------------------
 // Rank
@@ -135,6 +156,15 @@ export interface GearItem {
   requiredRank?: Rank
   flavor: string
   instanceId?: string      // unique per-drop instance so duplicates stack separately
+}
+
+/**
+ * Safely read a gear item's stat bonuses. Persisted/older or partially-built
+ * gear can lack `statBonuses` at runtime despite the type, which makes
+ * `Object.entries(item.statBonuses)` throw. Always read through this.
+ */
+export function gearStatBonuses(item: { statBonuses?: Partial<Stats> } | null | undefined): Partial<Stats> {
+  return item?.statBonuses ?? {}
 }
 
 export interface Relic {
@@ -326,8 +356,19 @@ export interface SyncRunResponse {
   flag_reason?: string
 }
 
+// A summary of the most recently synced run — the raw activity metrics read
+// from HealthKit/Health Connect, kept on the client for display (the server
+// response only returns resolved rewards/stats, not these source numbers).
+export interface RunSummary {
+  distance_km: number
+  duration_seconds: number
+  steps: number
+  avg_heart_rate: number | null
+  ended_at: string
+}
+
 // ---------------------------------------------------------------------------
-// Co-op gate
+// Co-op rift
 // ---------------------------------------------------------------------------
 
 export interface CoOpPlayerOutcome {
@@ -505,7 +546,7 @@ export const QUESTS: Quest[] = [
   {
     id: 'q_first_dungeon',
     title: 'First Blood',
-    description: 'Clear The Awakening Chamber.',
+    description: 'Clear The Ascension Chamber.',
     category: 'combat',
     condition: { type: 'dungeon_clear', dungeonId: 'd_awakening' },
     statRewards: { ATK: 2, LCK: 1 },
@@ -527,11 +568,11 @@ export const QUESTS: Quest[] = [
     category: 'combat',
     condition: { type: 'dungeon_clear', dungeonId: 'd_crystal' },
     statRewards: { ATK: 2, INT: 2 },
-    flavor: 'Rank D hunters rarely survive. You did.',
+    flavor: 'Rank D adventurers rarely survive. You did.',
   },
   {
     id: 'q_rank_c_clear',
-    title: 'Elite Hunter',
+    title: 'Elite Adventurer',
     description: 'Clear a Rank C dungeon.',
     category: 'combat',
     condition: { type: 'dungeon_clear', dungeonId: 'd_shadow' },
@@ -550,7 +591,7 @@ export const QUESTS: Quest[] = [
   },
   {
     id: 'q_find_element',
-    title: 'The Awakening',
+    title: 'The Ascension',
     description: 'Choose your element.',
     category: 'special',
     condition: { type: 'stat', statKey: 'INT', statMin: 1 },
@@ -582,12 +623,13 @@ export const DUNGEON_TYPE_LABELS: Record<DungeonType, string> = {
   general:   'General',
 }
 
+// MaterialCommunityIcons glyph names — rendered via <Icon name={...}> in UI.tsx.
 export const DUNGEON_TYPE_ICONS: Record<DungeonType, string> = {
-  explorer:  '🗺️',
-  conquest:  '🏴',
-  gathering: '⛏️',
-  endurance: '🏃',
-  general:   '⚔️',
+  explorer:  'map',
+  conquest:  'flag',
+  gathering: 'pickaxe',
+  endurance: 'run',
+  general:   'sword-cross',
 }
 
 // ---------------------------------------------------------------------------
@@ -623,14 +665,15 @@ export const TRAIT_LABELS: Record<TraitKey, string> = {
   mastery:     'Mastery',
 }
 
+// MaterialCommunityIcons glyph names — rendered via <Icon name={...}> in UI.tsx.
 export const TRAIT_ICONS: Record<TraitKey, string> = {
-  endurance:   '🏃',
-  strength:    '⚔️',
-  exploration: '🗺️',
-  conquest:    '🏴',
-  gathering:   '⛏️',
-  consistency: '🔥',
-  mastery:     '⭐',
+  endurance:   'run',
+  strength:    'sword-cross',
+  exploration: 'map',
+  conquest:    'flag',
+  gathering:   'pickaxe',
+  consistency: 'fire',
+  mastery:     'star',
 }
 
 export const TRAIT_SOURCES: Record<TraitKey, string> = {
@@ -688,15 +731,15 @@ export interface DungeonEntry {
 export const DUNGEON_ENTRIES: DungeonEntry[] = [
   {
     id: 'd_awakening',
-    name: 'The Awakening Chamber',
+    name: 'The Ascension Chamber',
     rank: 'F',
     dungeonType: 'general',
-    description: 'A crumbling ruin pulsing with residual mana. Entry-level gate.',
+    description: 'A crumbling ruin pulsing with residual mana. Entry-level rift.',
     statRequirements: {},
     rewardRarity: 'common',
     statRewards: { ATK: 1, END: 1 },
     traitRewards: { strength: 1 },
-    flavor: 'Every hunter remembers their first gate.',
+    flavor: 'Every adventurer remembers their first rift.',
     minDistanceKm: 0,
   },
   {
@@ -743,7 +786,7 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     name: 'Storm Gauntlet',
     rank: 'D',
     dungeonType: 'endurance',
-    description: 'A sky gate. Constant lightning. Speed is the only defence.',
+    description: 'A sky rift. Constant lightning. Speed is the only defence.',
     statRequirements: { SPD: 8, END: 8 },
     rewardRarity: 'uncommon',
     statRewards: { SPD: 3, END: 2 },
@@ -756,7 +799,7 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     name: 'Shadow Sanctum',
     rank: 'C',
     dungeonType: 'explorer',
-    description: 'A void gate where light itself has been consumed.',
+    description: 'A void rift where light itself has been consumed.',
     statRequirements: { ATK: 15, INT: 10 },
     rewardRarity: 'rare',
     statRewards: { ATK: 4, INT: 3 },
@@ -805,7 +848,7 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
   },
   {
     id: 'd_sovereign',
-    name: "Sovereign's Gate",
+    name: "Grandmaster's Rift",
     rank: 'S',
     dungeonType: 'general',
     description: 'The apex dungeon. Only the sovereign-ranked survive.',
@@ -852,12 +895,63 @@ export const RESOURCE_LABELS: Record<ResourceType, string> = {
   gold: 'Gold Dust',
 }
 
+// MaterialCommunityIcons glyph names — rendered via <Icon name={...}> in UI.tsx.
 export const RESOURCE_ICONS: Record<ResourceType, string> = {
-  iron: '⚙',
-  crystal: '◈',
-  mana: '✦',
-  herbs: '❧',
-  gold: '◆',
+  iron: 'cog',
+  crystal: 'rhombus',
+  mana: 'star-four-points',
+  herbs: 'leaf',
+  gold: 'rhombus-medium',
+}
+
+// ---------------------------------------------------------------------------
+// Territory upgrades — level rifts which node resource types can be harvested.
+// Upgrade a territory (spending harvested resources) to unlock rarer nodes.
+// ---------------------------------------------------------------------------
+
+export const TERRITORY_MAX_LEVEL = 5
+
+// Resource types unlocked AT each territory level (cumulative with lower levels).
+const TERRITORY_LEVEL_UNLOCKS: Record<number, ResourceType[]> = {
+  1: ['iron', 'herbs'],
+  2: ['gold'],
+  3: ['crystal'],
+  4: [],          // L4 is a power level (richness/yield headroom) — no new type
+  5: ['mana'],    // rarest
+}
+
+// All resource types a territory of the given level can harvest.
+export function unlockedResourceTypes(territoryLevel: number): ResourceType[] {
+  const out: ResourceType[] = []
+  for (let lvl = 1; lvl <= territoryLevel; lvl++) {
+    out.push(...(TERRITORY_LEVEL_UNLOCKS[lvl] ?? []))
+  }
+  return out
+}
+
+// Can a territory of `territoryLevel` harvest a node of `type`?
+export function canHarvestType(territoryLevel: number, type: ResourceType): boolean {
+  return unlockedResourceTypes(territoryLevel).includes(type)
+}
+
+// The minimum territory level required to harvest a given resource type.
+export function levelRequiredFor(type: ResourceType): number {
+  for (let lvl = 1; lvl <= TERRITORY_MAX_LEVEL; lvl++) {
+    if ((TERRITORY_LEVEL_UNLOCKS[lvl] ?? []).includes(type)) return lvl
+  }
+  return TERRITORY_MAX_LEVEL
+}
+
+// Cost to upgrade a territory FROM `currentLevel` to currentLevel+1.
+// Paid in harvested resources — creates a gather → upgrade → gather-rarer loop.
+export function territoryUpgradeCost(currentLevel: number): Partial<PlayerResources> {
+  switch (currentLevel) {
+    case 1: return { iron: 20, herbs: 10 }
+    case 2: return { iron: 40, gold: 15 }
+    case 3: return { gold: 30, crystal: 20 }
+    case 4: return { crystal: 40, gold: 50 }
+    default: return {}   // L5 = max
+  }
 }
 
 export interface Territory {
@@ -868,7 +962,36 @@ export interface Territory {
   lng: number
   name: string
   level: number
+  health: number
+  max_health: number
   created_at: string
+}
+
+// Max HP scales with territory level.
+export function territoryMaxHealth(level: number): number {
+  return 100 + (level - 1) * 50   // L1=100, L2=150 … L5=300
+}
+
+// Defense rating shown to the player — owner DEF/END + level + walls bonus.
+export function territoryDefense(
+  ownerStats: Partial<Stats> | undefined,
+  level: number,
+  wallsLevel = 0,
+): number {
+  const def = ownerStats?.DEF ?? 0
+  const end = ownerStats?.END ?? 0
+  return Math.round(def * 1.5 + end + level * 20 + wallsLevel * 15)
+}
+
+// Cost to repair a territory back to full, scaled by missing HP. Paid in resources.
+export function territoryRepairCost(territory: Pick<Territory, 'health' | 'max_health'>): Partial<PlayerResources> {
+  const missing = Math.max(0, territory.max_health - territory.health)
+  if (missing === 0) return {}
+  // 1 iron per 5 HP, 1 gold per 20 HP missing (rounded up).
+  return {
+    iron: Math.ceil(missing / 5),
+    gold: Math.ceil(missing / 20),
+  }
 }
 
 export interface ResourceNode {
@@ -913,18 +1036,19 @@ export const EMPTY_RESOURCES: PlayerResources = {
 export type SkillKind = 'player' | 'base'
 export type SkillActivation = 'active' | 'passive'
 
-// Shared element emoji map — single source of truth used across all screens
-export const ELEMENT_EMOJI: Record<Element, string> = {
-  fire:      '🔥',
-  water:     '💧',
-  nature:    '🌿',
-  arcane:    '🔮',
-  shadow:    '🌑',
-  frost:     '❄️',
-  earth:     '⛰️',
-  wind:      '🌪️',
-  lightning: '⚡',
-  holy:      '✨',
+// Shared element icon map — single source of truth used across all screens.
+// MaterialCommunityIcons glyph names — rendered via <Icon name={...}> in UI.tsx.
+export const ELEMENT_ICONS: Record<Element, string> = {
+  fire:      'fire',
+  water:     'water',
+  nature:    'sprout',
+  arcane:    'auto-fix',
+  shadow:    'weather-night',
+  frost:     'snowflake',
+  earth:     'terrain',
+  wind:      'weather-windy',
+  lightning: 'flash',
+  holy:      'white-balance-sunny',
 }
 
 export interface PlayerSkill {
@@ -944,24 +1068,24 @@ export interface PlayerSkill {
 
 // Player skills — unlocked through runs, dungeons, rewards
 export const PLAYER_SKILLS: PlayerSkill[] = [
-  { id: 'sk_shadow_step',    name: 'Shadow Step',     kind: 'player', activation: 'active',  element: 'shadow',    manaCost: 30, description: 'Dash through shadows instantly.',         effect: '+15% SPD for next gate',            rarity: 'uncommon', flavor: 'Between blinks, I was gone.',              icon: '🌑' },
-  { id: 'sk_iron_skin',      name: 'Iron Skin',       kind: 'player', activation: 'passive', element: 'earth',                  description: 'Harden your body against physical hits.', effect: '+10 DEF permanently',               rarity: 'common',   flavor: 'Hammered by miles, hardened by will.',     icon: '🛡️' },
-  { id: 'sk_flame_strike',   name: 'Flame Strike',    kind: 'player', activation: 'active',  element: 'fire',      manaCost: 45, description: 'Ignite your weapon with mana fire.',      effect: '+20% ATK vs frost/nature gates',    rarity: 'rare',     flavor: 'Everything burns if you run hot enough.',  icon: '🔥' },
-  { id: 'sk_arcane_insight', name: 'Arcane Insight',  kind: 'player', activation: 'passive', element: 'arcane',                 description: 'Read the gate before entering.',          effect: '+5% win probability on all gates',  rarity: 'uncommon', flavor: 'Knowledge is the sharpest weapon.',        icon: '🔮' },
-  { id: 'sk_wind_dash',      name: 'Wind Dash',       kind: 'player', activation: 'active',  element: 'wind',      manaCost: 20, description: 'Burst of pure speed.',                    effect: '+20% SPD this run',                 rarity: 'common',   flavor: 'The wind does not wait.',                  icon: '🌪️' },
-  { id: 'sk_holy_mend',      name: 'Holy Mending',    kind: 'player', activation: 'passive', element: 'holy',                   description: 'Recover stats after gate defeat.',        effect: 'Recover 50% stat loss after loss',  rarity: 'rare',     flavor: 'Light heals what darkness breaks.',        icon: '✨' },
-  { id: 'sk_void_sight',     name: 'Void Sight',      kind: 'player', activation: 'passive', element: 'shadow',                 description: 'See through darkness and illusions.',     effect: '+10 PER permanently',               rarity: 'rare',     flavor: 'The void reveals all truths.',             icon: '👁️' },
-  { id: 'sk_battle_cry',     name: 'Battle Cry',      kind: 'player', activation: 'active',  element: null,        manaCost: 35, description: 'Rally the party before a gate.',          effect: '+15% all stats for co-op gates',    rarity: 'uncommon', flavor: 'One voice can move an army.',              icon: '⚔️' },
+  { id: 'sk_shadow_step',    name: 'Shadow Step',     kind: 'player', activation: 'active',  element: 'shadow',    manaCost: 30, description: 'Dash through shadows instantly.',         effect: '+15% SPD for next rift',            rarity: 'uncommon', flavor: 'Between blinks, I was gone.',              icon: 'weather-night' },
+  { id: 'sk_iron_skin',      name: 'Iron Skin',       kind: 'player', activation: 'passive', element: 'earth',                  description: 'Harden your body against physical hits.', effect: '+10 DEF permanently',               rarity: 'common',   flavor: 'Hammered by miles, hardened by will.',     icon: 'shield' },
+  { id: 'sk_flame_strike',   name: 'Flame Strike',    kind: 'player', activation: 'active',  element: 'fire',      manaCost: 45, description: 'Ignite your weapon with mana fire.',      effect: '+20% ATK vs frost/nature rifts',    rarity: 'rare',     flavor: 'Everything burns if you run hot enough.',  icon: 'fire' },
+  { id: 'sk_arcane_insight', name: 'Arcane Insight',  kind: 'player', activation: 'passive', element: 'arcane',                 description: 'Read the rift before entering.',          effect: '+5% win probability on all rifts',  rarity: 'uncommon', flavor: 'Knowledge is the sharpest weapon.',        icon: 'crystal-ball' },
+  { id: 'sk_wind_dash',      name: 'Wind Dash',       kind: 'player', activation: 'active',  element: 'wind',      manaCost: 20, description: 'Burst of pure speed.',                    effect: '+20% SPD this run',                 rarity: 'common',   flavor: 'The wind does not wait.',                  icon: 'weather-tornado' },
+  { id: 'sk_holy_mend',      name: 'Holy Mending',    kind: 'player', activation: 'passive', element: 'holy',                   description: 'Recover stats after rift defeat.',        effect: 'Recover 50% stat loss after loss',  rarity: 'rare',     flavor: 'Light heals what darkness breaks.',        icon: 'shimmer' },
+  { id: 'sk_void_sight',     name: 'Void Sight',      kind: 'player', activation: 'passive', element: 'shadow',                 description: 'See through darkness and illusions.',     effect: '+10 PER permanently',               rarity: 'rare',     flavor: 'The void reveals all truths.',             icon: 'eye' },
+  { id: 'sk_battle_cry',     name: 'Battle Cry',      kind: 'player', activation: 'active',  element: null,        manaCost: 35, description: 'Rally the party before a rift.',          effect: '+15% all stats for co-op rifts',    rarity: 'uncommon', flavor: 'One voice can move an army.',              icon: 'sword-cross' },
 ]
 
 // Base skills — equipped to fortress defense slots
 export const BASE_SKILLS: PlayerSkill[] = [
-  { id: 'bsk_iron_golem',    name: 'Iron Golem',      kind: 'base', activation: 'passive', element: 'earth',     description: 'A construct that guards your territory.',    effect: '+20 DEF to fortress',               rarity: 'common',   flavor: 'Stone and steel do not sleep.',             icon: '🗿' },
-  { id: 'bsk_holy_ward',     name: 'Holy Ward',       kind: 'base', activation: 'passive', element: 'holy',      description: 'Sacred barrier that heals the base.',        effect: 'Restore 10 DEF/day passively',      rarity: 'uncommon', flavor: 'Where light falls, darkness cannot hold.',  icon: '✨' },
-  { id: 'bsk_shadow_ward',   name: 'Shadow Ward',     kind: 'base', activation: 'passive', element: 'shadow',    description: 'Obscures your territory from detection.',   effect: '-25% chance to be targeted',        rarity: 'rare',     flavor: 'The best defence is invisibility.',         icon: '🌑' },
-  { id: 'bsk_frost_barrier', name: 'Frost Barrier',   kind: 'base', activation: 'active',  element: 'frost',     manaCost: 25, description: 'Slows enemy attackers on contact.',   effect: '-20% attacker SPD in PvP',          rarity: 'uncommon', flavor: 'Cold stone is still stone.',                icon: '❄️' },
-  { id: 'bsk_arcane_shield', name: 'Arcane Shield',   kind: 'base', activation: 'passive', element: 'arcane',    description: 'Magical barrier that absorbs first hit.',   effect: 'Absorb 1 attack per 24h',           rarity: 'rare',     flavor: 'Magic endures where walls crumble.',        icon: '🔵' },
-  { id: 'bsk_fire_trap',     name: 'Fire Trap',       kind: 'base', activation: 'active',  element: 'fire',      manaCost: 30, description: 'Burns attackers who breach the perimeter.', effect: 'Deal 15% ATK back to attacker', rarity: 'uncommon', flavor: 'Step on the flame. See what happens.',      icon: '🔥' },
+  { id: 'bsk_iron_golem',    name: 'Iron Golem',      kind: 'base', activation: 'passive', element: 'earth',     description: 'A construct that guards your territory.',    effect: '+20 DEF to fortress',               rarity: 'common',   flavor: 'Stone and steel do not sleep.',             icon: 'robot' },
+  { id: 'bsk_holy_ward',     name: 'Holy Ward',       kind: 'base', activation: 'passive', element: 'holy',      description: 'Sacred barrier that heals the base.',        effect: 'Restore 10 DEF/day passively',      rarity: 'uncommon', flavor: 'Where light falls, darkness cannot hold.',  icon: 'shimmer' },
+  { id: 'bsk_shadow_ward',   name: 'Shadow Ward',     kind: 'base', activation: 'passive', element: 'shadow',    description: 'Obscures your territory from detection.',   effect: '-25% chance to be targeted',        rarity: 'rare',     flavor: 'The best defence is invisibility.',         icon: 'weather-night' },
+  { id: 'bsk_frost_barrier', name: 'Frost Barrier',   kind: 'base', activation: 'active',  element: 'frost',     manaCost: 25, description: 'Slows enemy attackers on contact.',   effect: '-20% attacker SPD in PvP',          rarity: 'uncommon', flavor: 'Cold stone is still stone.',                icon: 'snowflake' },
+  { id: 'bsk_arcane_shield', name: 'Arcane Shield',   kind: 'base', activation: 'passive', element: 'arcane',    description: 'Magical barrier that absorbs first hit.',   effect: 'Absorb 1 attack per 24h',           rarity: 'rare',     flavor: 'Magic endures where walls crumble.',        icon: 'shield-sun' },
+  { id: 'bsk_fire_trap',     name: 'Fire Trap',       kind: 'base', activation: 'active',  element: 'fire',      manaCost: 30, description: 'Burns attackers who breach the perimeter.', effect: 'Deal 15% ATK back to attacker', rarity: 'uncommon', flavor: 'Step on the flame. See what happens.',      icon: 'fire' },
 ]
 
 export const ALL_SKILLS: PlayerSkill[] = [...PLAYER_SKILLS, ...BASE_SKILLS]
@@ -975,11 +1099,11 @@ export type CropType = 'herb_garden' | 'iron_mine' | 'mana_pool' | 'crystal_vein
 export const CROP_CONFIG: Record<CropType, {
   label: string; icon: string; resource: ResourceType; yieldAmount: number; cooldownHours: number
 }> = {
-  herb_garden:   { label: 'Herb Garden',   icon: '🌿', resource: 'herbs',   yieldAmount: 5, cooldownHours: 4  },
-  iron_mine:     { label: 'Iron Mine',     icon: '⛏',  resource: 'iron',    yieldAmount: 8, cooldownHours: 6  },
-  mana_pool:     { label: 'Mana Pool',     icon: '✦',  resource: 'mana',    yieldAmount: 3, cooldownHours: 8  },
-  crystal_vein:  { label: 'Crystal Vein',  icon: '◈',  resource: 'crystal', yieldAmount: 2, cooldownHours: 12 },
-  gold_deposit:  { label: 'Gold Deposit',  icon: '◆',  resource: 'gold',    yieldAmount: 1, cooldownHours: 24 },
+  herb_garden:   { label: 'Herb Garden',   icon: 'leaf',             resource: 'herbs',   yieldAmount: 5, cooldownHours: 4  },
+  iron_mine:     { label: 'Iron Mine',     icon: 'pickaxe',          resource: 'iron',    yieldAmount: 8, cooldownHours: 6  },
+  mana_pool:     { label: 'Mana Pool',     icon: 'star-four-points', resource: 'mana',    yieldAmount: 3, cooldownHours: 8  },
+  crystal_vein:  { label: 'Crystal Vein',  icon: 'rhombus',          resource: 'crystal', yieldAmount: 2, cooldownHours: 12 },
+  gold_deposit:  { label: 'Gold Deposit',  icon: 'rhombus-medium',   resource: 'gold',    yieldAmount: 1, cooldownHours: 24 },
 }
 
 export interface FortressCrop {
@@ -1032,7 +1156,7 @@ export const FORTRESS_BUILDINGS: FortressBuilding[] = [
     name: 'Barracks',
     description: 'Train soldiers, increase ATK.',
     statBonus: '+2 ATK per level',
-    icon: '⚔',
+    icon: 'sword-cross',
     maxLevel: 5,
     upgradeCost: (lvl) => ({ iron: lvl * 10 + 5, gold: lvl * 5 }),
   },
@@ -1041,7 +1165,7 @@ export const FORTRESS_BUILDINGS: FortressBuilding[] = [
     name: 'Fortress Walls',
     description: 'Harden your defences, increase DEF.',
     statBonus: '+2 DEF per level',
-    icon: '🛡',
+    icon: 'shield',
     maxLevel: 5,
     upgradeCost: (lvl) => ({ iron: lvl * 15, crystal: lvl * 5 }),
   },
@@ -1050,7 +1174,7 @@ export const FORTRESS_BUILDINGS: FortressBuilding[] = [
     name: 'Grand Forge',
     description: 'Unlock advanced crafting recipes.',
     statBonus: '+1 craft slot per level',
-    icon: '⚒',
+    icon: 'hammer',
     maxLevel: 5,
     upgradeCost: (lvl) => ({ iron: lvl * 8, mana: lvl * 8 }),
   },
@@ -1103,6 +1227,13 @@ export const RARITY_LABELS: Record<Rarity, string> = {
 // Influence cost to place a new territory
 export const TERRITORY_PLACE_COST = 50
 // Harvest cooldown in hours
+// Influence awarded for clearing a rift, by rank. Influence is the currency
+// used to claim territory — earning it through rift clears closes the loop
+// (run → stats → clear rifts → influence → claim/expand territory → resources).
+export const RIFT_INFLUENCE_REWARD: Record<'F' | 'E' | 'D' | 'C' | 'B' | 'A' | 'S', number> = {
+  F: 5, E: 8, D: 12, C: 18, B: 26, A: 35, S: 50,
+}
+
 export const HARVEST_COOLDOWN_H = 6
 // Harvest range in metres
 export const HARVEST_RANGE_M = 200

@@ -15,7 +15,7 @@
 import React, { useMemo } from 'react'
 import { Canvas, Path, Skia, Circle, Text as SkiaText, useFont } from '@shopify/react-native-skia'
 import { View } from 'react-native'
-import { COLORS, FONTS, FONT_SIZES, elementAccent } from '@/theme/tokens'
+import { COLORS, FONT_SIZES, elementAccent } from '@/theme/tokens'
 import { STAT_KEYS, type Stats, type StatKey, type Element } from '@/types'
 
 // ---------------------------------------------------------------------------

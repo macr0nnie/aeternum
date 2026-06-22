@@ -1,32 +1,31 @@
 // =============================================================================
-// Aeternum — Fortress Screen (Sovereign Base)
+// Aeternum — Fortress Screen (Grandmaster Hall)
 // Korean RPG status menu: element affinity, defense loadout, passive gardens
 // =============================================================================
 import { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  RefreshControl, Modal, Alert,
+  RefreshControl, Modal,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import {
   useStore, selectPlayer, selectResources, selectFortress,
   selectMyTerritories, selectCrops, selectUnlockedSkillIds,
 } from '@/store/useStore'
-import { SystemWindow, SectionHeader, Label, Spacer } from '@/components/UI'
+import { SystemWindow, SectionHeader, Label, Spacer, Icon } from '@/components/UI'
 import {
   COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING, elementAccent,
-  SHADOWS,
 } from '@/theme/tokens'
 import {
-  fetchPlayerResources, upsertPlayerResources, fetchFortress, upsertFortress,
+  fetchPlayerResources, upsertPlayerResources, fetchFortress,
   fetchMyTerritories, fetchFortressCrops, plantCrop, harvestCrop, removeCrop,
-  saveDefenseSlots, fetchPlayerSkills, unlockSkill as serverUnlockSkill,
+  saveDefenseSlots, fetchPlayerSkills,
 } from '@/lib/supabase'
 import {
-  RESOURCE_ICONS, TYPE_MATCHUP_CHART, ELEMENT_LABELS, ELEMENT_EMOJI,
-  ALL_SKILLS, BASE_SKILLS, CROP_CONFIG, RARITY_COLORS,
+  RESOURCE_ICONS, TYPE_MATCHUP_CHART, ELEMENT_LABELS, ELEMENT_ICONS,
+  ALL_SKILLS, BASE_SKILLS, CROP_CONFIG,
   type Element, type Territory, type FortressCrop, type CropType,
-  type DefenseSlot, type PlayerResources, type Fortress, type PlayerSkill,
+  type DefenseSlot, type PlayerSkill,
 } from '@/types'
 import type { Element as ElementType } from '@/types'
 
@@ -46,7 +45,7 @@ function ResourceBar() {
       <View style={res.divider} />
       {types.map(t => (
         <View key={t} style={res.chip}>
-          <Text style={res.chipIcon}>{RESOURCE_ICONS[t]}</Text>
+          <Icon name={RESOURCE_ICONS[t]} size={14} color={COLORS.textSecondary} style={res.chipIcon} />
           <Text style={res.chipVal}>{resources[t]}</Text>
           <Text style={res.chipLabel}>{t.toUpperCase()}</Text>
         </View>
@@ -97,7 +96,7 @@ function ElementStatus({ element }: { element: Element | null }) {
       <View style={el.row}>
         <Label variant="tertiary" size="xs">ELEMENT</Label>
         <View style={[el.badge, { borderColor: elementAccent(element).base, backgroundColor: elementAccent(element).dim }]}>
-          <Text style={el.badgeIcon}>{ELEMENT_EMOJI[element] ?? '◆'}</Text>
+          <Icon name={ELEMENT_ICONS[element] ?? 'rhombus-medium'} size={14} color={elementAccent(element).base} style={el.badgeIcon} />
           <Text style={[el.badgeTxt, { color: elementAccent(element).base }]}>{ELEMENT_LABELS[element].toUpperCase()}</Text>
         </View>
       </View>
@@ -107,7 +106,7 @@ function ElementStatus({ element }: { element: Element | null }) {
           <View style={el.tagRow}>
             {weakTo.map(e => (
               <View key={e} style={[el.weakTag, { borderColor: COLORS.systemAlert + '80' }]}>
-                <Text style={el.weakTxt}>{ELEMENT_EMOJI[e] ?? ''} {ELEMENT_LABELS[e].toUpperCase()}</Text>
+                <Text style={el.weakTxt}><Icon name={ELEMENT_ICONS[e] ?? 'rhombus-medium'} size={10} color={COLORS.systemAlert} /> {ELEMENT_LABELS[e].toUpperCase()}</Text>
               </View>
             ))}
           </View>
@@ -119,7 +118,7 @@ function ElementStatus({ element }: { element: Element | null }) {
           <View style={el.tagRow}>
             {resistTo.slice(0, 3).map(e => (
               <View key={e} style={[el.resistTag, { borderColor: COLORS.success + '60' }]}>
-                <Text style={el.resistTxt}>{ELEMENT_EMOJI[e] ?? ''} {ELEMENT_LABELS[e].toUpperCase()}</Text>
+                <Text style={el.resistTxt}><Icon name={ELEMENT_ICONS[e] ?? 'rhombus-medium'} size={10} color={COLORS.success} /> {ELEMENT_LABELS[e].toUpperCase()}</Text>
               </View>
             ))}
           </View>
@@ -202,21 +201,21 @@ function DefenseSlotGrid({ slots, unlockedSkillIds, onSlotPress }: DefenseSlotGr
             {skill ? (
               <>
                 <View style={ds.slotTop}>
-                  <Text style={ds.slotIcon}>{skill.icon}</Text>
+                  <Icon name={skill.icon} size={20} color={elColor ?? COLORS.textPrimary} style={ds.slotIcon} />
                   {skill.element && (
-                    <Text style={ds.elEmoji}>{ELEMENT_EMOJI[skill.element as Element]}</Text>
+                    <Icon name={ELEMENT_ICONS[skill.element as Element]} size={12} color={elColor ?? COLORS.textSecondary} style={ds.elEmoji} />
                   )}
                 </View>
                 <Text style={[ds.slotName, elColor && { color: elColor }]} numberOfLines={2}>{skill.name}</Text>
                 <Text style={ds.slotEffect} numberOfLines={1}>{skill.effect}</Text>
                 <SkillActivationBadge skill={skill} />
                 {isActive && skill.manaCost && (
-                  <Text style={ds.manaCost}>💧 {skill.manaCost} mana</Text>
+                  <Text style={ds.manaCost}><Icon name="water" size={11} color={COLORS.system} /> {skill.manaCost} mana</Text>
                 )}
               </>
             ) : (
               <>
-                <Text style={ds.emptyIcon}>⊕</Text>
+                <Icon name="plus-circle-outline" size={22} color={COLORS.borderMid} style={ds.emptyIcon} />
                 <Text style={ds.emptyLabel}>SLOT {i + 1}</Text>
                 {unlockedSkillIds.length === 0 && <Text style={ds.emptyHint}>Clear dungeons</Text>}
               </>
@@ -301,7 +300,7 @@ function GardenSlots({ crops, onHarvest, onPlant, onRemove }: GardenSlotsProps) 
           <View key={i} style={[gd.slot, ready && gd.slotReady]}>
             {crop && cfg ? (
               <>
-                <Text style={gd.cropIcon}>{cfg.icon}</Text>
+                <Icon name={cfg.icon} size={28} color={COLORS.textPrimary} style={gd.cropIcon} />
                 <Text style={gd.cropName}>{cfg.label}</Text>
                 <Text style={[gd.cropTimer, ready && { color: COLORS.success }]}>{cropLabel(crop)}</Text>
                 <View style={gd.cropActions}>
@@ -311,13 +310,13 @@ function GardenSlots({ crops, onHarvest, onPlant, onRemove }: GardenSlotsProps) 
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity onPress={() => onRemove(crop)} activeOpacity={0.75}>
-                    <Text style={gd.removeBtn}>✕</Text>
+                    <Icon name="close" size={14} color={COLORS.textTertiary} style={gd.removeBtn} />
                   </TouchableOpacity>
                 </View>
               </>
             ) : (
               <TouchableOpacity style={gd.emptyInner} onPress={() => onPlant(i)} activeOpacity={0.75}>
-                <Text style={gd.emptyIcon}>⊕</Text>
+                <Icon name="plus-circle-outline" size={22} color={COLORS.borderMid} style={gd.emptyIcon} />
                 <Text style={gd.emptyLabel}>PLANT</Text>
               </TouchableOpacity>
             )}
@@ -360,7 +359,7 @@ function TerritoryItem({ territory }: { territory: Territory }) {
   return (
     <View style={ti.row}>
       <View style={ti.flag}>
-        <Text style={ti.flagIcon}>⚑</Text>
+        <Icon name="flag" size={16} color={COLORS.system} style={ti.flagIcon} />
         <Text style={ti.level}>Lv{territory.level}</Text>
       </View>
       <View style={ti.info}>
@@ -393,7 +392,6 @@ const ti = StyleSheet.create({
 
 export default function FortressScreen() {
   const player = useStore(selectPlayer)
-  const resources = useStore(selectResources)
   const fortress = useStore(selectFortress)
   const myTerritories = useStore(selectMyTerritories)
   const crops = useStore(selectCrops)
@@ -410,13 +408,19 @@ export default function FortressScreen() {
 
   const load = useCallback(async () => {
     if (!player) return
-    const [resData, fortData, terrData, cropsData, skillsData] = await Promise.all([
-      fetchPlayerResources(player.id),
-      fetchFortress(player.id),
-      fetchMyTerritories(player.id),
-      fetchFortressCrops(player.id),
-      fetchPlayerSkills(player.id),
-    ])
+    let resData, fortData, terrData, cropsData, skillsData
+    try {
+      [resData, fortData, terrData, cropsData, skillsData] = await Promise.all([
+        fetchPlayerResources(player.id),
+        fetchFortress(player.id),
+        fetchMyTerritories(player.id),
+        fetchFortressCrops(player.id),
+        fetchPlayerSkills(player.id),
+      ])
+    } catch (err) {
+      console.error('[fortress] load failed', err)
+      return
+    }
     if (resData.data) {
       const r = resData.data
       setResources({ influence: r.influence ?? 0, iron: r.iron ?? 0, crystal: r.crystal ?? 0, mana: r.mana_res ?? 0, herbs: r.herbs ?? 0, gold: r.gold_res ?? 0 })
@@ -439,7 +443,8 @@ export default function FortressScreen() {
   useEffect(() => { load() }, [load])
 
   const onRefresh = useCallback(async () => {
-    setRefreshing(true); await load(); setRefreshing(false)
+    setRefreshing(true)
+    try { await load() } finally { setRefreshing(false) }
   }, [load])
 
   // Defense slot management
@@ -512,7 +517,7 @@ export default function FortressScreen() {
       >
         {/* ── Header ── */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: palette.base }]}>◆ SOVEREIGN BASE ◆</Text>
+          <Text style={[styles.title, { color: palette.base }]}>◆ GRANDMASTER BASE ◆</Text>
           <Text style={styles.sub}>{player?.username ?? '—'} · Level {fortress.level}</Text>
         </View>
 
@@ -596,7 +601,7 @@ export default function FortressScreen() {
                     if (!skill) return null
                     return (
                       <View style={modal.equippedRow}>
-                        <Text style={modal.equippedIcon}>{skill.icon}</Text>
+                        <Icon name={skill.icon} size={24} color={COLORS.textPrimary} style={modal.equippedIcon} />
                         <View style={modal.equippedInfo}>
                           <Text style={modal.equippedName}>{skill.name}</Text>
                           <Text style={modal.equippedEffect}>{skill.effect}</Text>
@@ -609,7 +614,7 @@ export default function FortressScreen() {
                     onPress={() => slotModal !== null && handleRemoveSkill(slotModal)}
                     activeOpacity={0.75}
                   >
-                    <Text style={modal.removeTxt}>✕  REMOVE SKILL</Text>
+                    <Text style={modal.removeTxt}><Icon name="close" size={13} color={COLORS.systemAlert} />  REMOVE SKILL</Text>
                   </TouchableOpacity>
                   <Spacer size="sm" />
                 </>
@@ -627,7 +632,7 @@ export default function FortressScreen() {
                       onPress={() => slotModal !== null && handleEquipSkill(slotModal, skill.id)}
                       activeOpacity={0.75}
                     >
-                      <Text style={modal.skillIcon}>{skill.icon}</Text>
+                      <Icon name={skill.icon} size={22} color={COLORS.textPrimary} style={modal.skillIcon} />
                       <View style={modal.skillInfo}>
                         <Text style={modal.skillName}>{skill.name}</Text>
                         <Text style={modal.skillEffect}>{skill.effect}</Text>
@@ -661,7 +666,7 @@ export default function FortressScreen() {
                     onPress={() => plantModal !== null && handlePlantCrop(plantModal, ct)}
                     activeOpacity={0.75}
                   >
-                    <Text style={modal.skillIcon}>{cfg.icon}</Text>
+                    <Icon name={cfg.icon} size={22} color={COLORS.textPrimary} style={modal.skillIcon} />
                     <View style={modal.skillInfo}>
                       <Text style={modal.skillName}>{cfg.label}</Text>
                       <Text style={modal.skillEffect}>

@@ -69,6 +69,18 @@ export default function SettingsScreen() {
 
   const [signingOut, setSigningOut] = useState(false)
 
+  // Hidden debug gate: tap the Version row 7× to reveal debug tools in release.
+  const [versionTaps, setVersionTaps] = useState(0)
+  const [debugUnlocked, setDebugUnlocked] = useState(false)
+  function handleVersionTap() {
+    const next = versionTaps + 1
+    setVersionTaps(next)
+    if (next >= 7 && !debugUnlocked) {
+      setDebugUnlocked(true)
+      Alert.alert('Debug unlocked', 'Developer tools are now visible below.')
+    }
+  }
+
   // ── Debug helpers ──────────────────────────────────────────────────────────
 
   function debugSimulateRun() {
@@ -85,7 +97,7 @@ export default function SettingsScreen() {
 
   function debugAddTraits() {
     for (const key of TRAIT_KEYS) addTrait(key as TraitKey, 20)
-    Alert.alert('Debug', '+20 added to all traits. Check Hunter → Identity.')
+    Alert.alert('Debug', '+20 added to all traits. Check Adventurer → Identity.')
   }
 
   function debugUnlockSkill() {
@@ -107,17 +119,25 @@ export default function SettingsScreen() {
 
   async function handleRequestHealth() {
     try {
-      const { initHealth } = await import('@/lib/health')
+      const { initHealth, openHealthPermissions } = await import('@/lib/health')
       const granted = await initHealth()
       if (granted) {
         Alert.alert('Health Access', 'Permissions granted. Sync will work on your next run.')
-      } else {
+        return
+      }
+      // Denied/dismissed — open the health permission UI directly in-app rather
+      // than telling the user to dig through device Settings.
+      if (Platform.OS === 'android') {
         Alert.alert(
-          'Health Access Denied',
-          Platform.OS === 'ios'
-            ? 'Go to Settings → Health → Data Access & Devices → Aeternum and enable all permissions.'
-            : 'Go to your device Settings → Health Connect → App permissions → Aeternum and enable all permissions.',
+          'Enable Health Access',
+          'Open Health Connect to allow Aeternum to read your workouts?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open', onPress: () => { openHealthPermissions() } },
+          ],
         )
+      } else {
+        Alert.alert('Health Access', 'Permission was not granted. Tap the button again to retry.')
       }
     } catch {
       Alert.alert('Error', 'Could not open health permissions. Try again.')
@@ -207,7 +227,7 @@ export default function SettingsScreen() {
         {/* App info */}
         <SectionHeader title="APP" />
         <View style={styles.section}>
-          <SettingRow label="Version" value="1.0.0" />
+          <SettingRow label="Version" value="1.0.0" onPress={handleVersionTap} />
           <SettingRow
             label="Reset Local Cache"
             sub="Clears quest/dungeon/gear cache. Server data is safe."
@@ -216,40 +236,46 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Debug tools */}
-        <SectionHeader title="DEBUG TOOLS" />
-        <View style={styles.section}>
-          <SettingRow
-            label="+ 5 km Run"
-            sub="Simulate a 5km run sync (+stats)"
-            onPress={debugSimulateRun}
-          />
-          <SettingRow
-            label="+ Traits × 20"
-            sub="Add 20 to all traits — triggers archetype discovery"
-            onPress={debugAddTraits}
-          />
-          <SettingRow
-            label="Unlock Random Skill"
-            sub="Unlock a random player skill for testing"
-            onPress={debugUnlockSkill}
-          />
-          <SettingRow
-            label="+ 200 Influence"
-            sub="Add influence for world territory testing"
-            onPress={debugAddInfluence}
-          />
-          <SettingRow
-            label="Reset Dungeon Clears"
-            sub="Lets you re-test dungeon rewards"
-            onPress={debugResetDungeons}
-            destructive
-          />
-        </View>
+        {/* Debug tools — always available in DEV; in release builds they stay
+            hidden until unlocked by tapping the Version row 7× (so testers can't
+            stumble into cheats, but you still have access). */}
+        {(__DEV__ || debugUnlocked) && (
+          <>
+            <SectionHeader title="DEBUG TOOLS" />
+            <View style={styles.section}>
+              <SettingRow
+                label="+ 5 km Run"
+                sub="Simulate a 5km run sync (+stats)"
+                onPress={debugSimulateRun}
+              />
+              <SettingRow
+                label="+ Traits × 20"
+                sub="Add 20 to all traits — triggers archetype discovery"
+                onPress={debugAddTraits}
+              />
+              <SettingRow
+                label="Unlock Random Skill"
+                sub="Unlock a random player skill for testing"
+                onPress={debugUnlockSkill}
+              />
+              <SettingRow
+                label="+ 200 Influence"
+                sub="Add influence for world territory testing"
+                onPress={debugAddInfluence}
+              />
+              <SettingRow
+                label="Reset Dungeon Clears"
+                sub="Lets you re-test dungeon rewards"
+                onPress={debugResetDungeons}
+                destructive
+              />
+            </View>
+          </>
+        )}
 
         {/* Danger zone */}
         <SectionHeader title="DANGER ZONE" />
-        <SystemWindow title="⚠  DATA WARNING" variant="alert">
+        <SystemWindow title="DATA WARNING" icon="alert" variant="alert">
           <Text style={styles.warningText}>
             Reset Local Cache only affects data stored on this device.
             Your stats, distance, and rank are always stored on the server and will be restored on next login.

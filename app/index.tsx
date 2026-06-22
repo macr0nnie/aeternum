@@ -2,16 +2,17 @@
 // Aeternum — Command Hub
 // =============================================================================
 
-import React from 'react'
-import { View, Text, ScrollView, StyleSheet } from 'react-native'
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
+import { useRouter } from 'expo-router'
 import { useStore, selectPlayer, selectSyncState, selectLatestRunResult } from '@/store/useStore'
-import { Panel, Heading, Label, RankBadge, Divider, Spacer, SystemWindow } from '@/components/UI'
+import { Panel, Heading, Label, RankBadge, Divider, Spacer, SystemWindow, Icon } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, elementAccent, rarityColor } from '@/theme/tokens'
 import { ELEMENT_LABELS, DISTANCE_TIERS } from '@/types'
 import type { Element } from '@/types'
 
 export default function CommandHub() {
+  const router = useRouter()
   const player = useStore(selectPlayer)
   const syncState = useStore(selectSyncState)
   const latestResult = useStore(selectLatestRunResult)
@@ -34,9 +35,10 @@ export default function CommandHub() {
     t => player.total_distance_km >= t.minKm && player.total_distance_km < t.maxKm,
   )
   const nextTier = DISTANCE_TIERS[currentTierIdx + 1]
-  const tierProgress = nextTier
-    ? (player.total_distance_km - (DISTANCE_TIERS[currentTierIdx]?.minKm ?? 0)) /
-      (nextTier.minKm - (DISTANCE_TIERS[currentTierIdx]?.minKm ?? 0))
+  const tierFloor = DISTANCE_TIERS[currentTierIdx]?.minKm ?? 0
+  const tierSpan = nextTier ? nextTier.minKm - tierFloor : 0
+  const tierProgress = nextTier && tierSpan > 0
+    ? Math.max(0, Math.min(1, (player.total_distance_km - tierFloor) / tierSpan))
     : 1
 
   const isActive = syncState === 'reading' || syncState === 'uploading'
@@ -101,7 +103,7 @@ export default function CommandHub() {
                   <Label variant="mono">{`${nextTier.minKm} km`}</Label>
                 </>
               ) : (
-                <Label variant="primary">Sovereign</Label>
+                <Label variant="primary">Grandmaster</Label>
               )}
             </View>
           </View>
@@ -123,6 +125,38 @@ export default function CommandHub() {
         <Divider element={element} />
         <Spacer size="md" />
 
+        {/* Sync Run — THE core fitness action. Reads your last workout into
+            stats/loot. Without this card the /sync route is unreachable. */}
+        <TouchableOpacity activeOpacity={0.8} onPress={() => router.push('/sync')}>
+          <Panel element={element} elevated>
+            <View style={styles.navRow}>
+              <View style={styles.flex1}>
+                <Label variant="primary" size="md">◆  SYNC RUN</Label>
+                <Label variant="tertiary" size="xs">Turn your latest workout into power</Label>
+              </View>
+              <Text style={[styles.navChevron, { color: palette.base }]}>›</Text>
+            </View>
+          </Panel>
+        </TouchableOpacity>
+
+        <Spacer size="md" />
+
+        {/* Quest Board — primary path to level-up objectives. Without this card
+            the /quests route is unreachable (it's a hidden, hrefless screen). */}
+        <TouchableOpacity activeOpacity={0.8} onPress={() => router.push('/quests')}>
+          <Panel element={element} elevated>
+            <View style={styles.navRow}>
+              <View style={styles.flex1}>
+                <Label variant="primary" size="md">◈  QUEST BOARD</Label>
+                <Label variant="tertiary" size="xs">View objectives to grow your power</Label>
+              </View>
+              <Text style={[styles.navChevron, { color: palette.base }]}>›</Text>
+            </View>
+          </Panel>
+        </TouchableOpacity>
+
+        <Spacer size="md" />
+
         {/* Run sync status */}
         {isActive && (
           <SystemWindow title={syncState === 'reading' ? 'READING HEALTH DATA' : 'RESOLVING RUN'} variant="info">
@@ -141,11 +175,11 @@ export default function CommandHub() {
 
         {syncState === 'done' && latestResult && (
           <SystemWindow title="◆ RUN RESOLVED ◆" variant="gold">
-            {Object.keys(latestResult.stat_gains).length > 0 && (
+            {Object.keys(latestResult.stat_gains ?? {}).length > 0 && (
               <>
                 <Text style={styles.syncSubtitle}>STAT GAINS</Text>
                 <View style={styles.gainRow}>
-                  {Object.entries(latestResult.stat_gains).map(([k, v]) => (
+                  {Object.entries(latestResult.stat_gains ?? {}).map(([k, v]) => (
                     <View key={k} style={styles.gainChip}>
                       <Text style={styles.gainKey}>{k}</Text>
                       <Text style={styles.gainVal}>{`+${v}`}</Text>
@@ -154,11 +188,11 @@ export default function CommandHub() {
                 </View>
               </>
             )}
-            {latestResult.rewards.length > 0 && (
+            {(latestResult.rewards?.length ?? 0) > 0 && (
               <>
                 <Spacer size="sm" />
                 <Text style={styles.syncSubtitle}>REWARDS</Text>
-                {latestResult.rewards.map(r => (
+                {(latestResult.rewards ?? []).map(r => (
                   <Text key={r.id} style={[styles.rewardLine, { color: rarityColor(r.rarity) }]}>
                     {'◆ '}{r.name.toUpperCase()}
                   </Text>
@@ -166,7 +200,7 @@ export default function CommandHub() {
               </>
             )}
             {latestResult.flag_reason && (
-              <Text style={styles.flagText}>{`⚠ ${latestResult.flag_reason}`}</Text>
+              <Text style={styles.flagText}><Icon name="alert" size={12} color={COLORS.warning} /> {latestResult.flag_reason}</Text>
             )}
           </SystemWindow>
         )}
@@ -196,6 +230,8 @@ const styles = StyleSheet.create({
   header: { alignItems: 'flex-start', paddingTop: SPACING.sm },
   row: { flexDirection: 'row', gap: SPACING.sm, flexWrap: 'wrap' },
   flex1: { flex: 1 },
+  navRow: { flexDirection: 'row', alignItems: 'center' },
+  navChevron: { fontFamily: FONTS.display, fontSize: 28, marginLeft: SPACING.sm },
   elementPill: {
     borderWidth: 1,
     borderRadius: 2,

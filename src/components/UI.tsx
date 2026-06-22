@@ -12,6 +12,7 @@ import {
   type ViewStyle,
   type TextStyle,
 } from 'react-native'
+import { MaterialCommunityIcons } from '@expo/vector-icons'
 import {
   COLORS,
   FONTS,
@@ -25,6 +26,50 @@ import {
   rarityColor,
 } from '@/theme/tokens'
 import type { Element, Rank, Rarity, StatKey } from '@/types'
+
+// ---------------------------------------------------------------------------
+// Icon — single source of truth for vector glyphs (MaterialCommunityIcons)
+//
+// The Korean-RPG UI uses MaterialCommunityIcons (ships with @expo/vector-icons,
+// zero extra deps). Data-layer `icon:` fields now store MCI glyph names. As a
+// safety net for legacy/persisted data that still carries emoji or geometric
+// glyph strings, `GLYPH_TO_ICON` maps those forward to MCI names so nothing
+// renders as raw text.
+// ---------------------------------------------------------------------------
+
+export type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name']
+
+// Legacy emoji / geometric-glyph → MCI name. Keeps old persisted data rendering.
+const GLYPH_TO_ICON: Record<string, IconName> = {
+  // skills
+  '🌑': 'weather-night', '🛡️': 'shield', '🛡': 'shield', '🔥': 'fire',
+  '🔮': 'crystal-ball', '🌪️': 'weather-tornado', '✨': 'shimmer', '👁️': 'eye',
+  '⚔️': 'sword-cross', '⚔': 'sword-cross', '🗿': 'image-filter-hdr',
+  '❄️': 'snowflake', '🔵': 'circle', '🌿': 'leaf', '🏔': 'image-filter-hdr',
+  '📦': 'package-variant-closed', '🗺️': 'map', '🏴': 'flag', '⛏️': 'pickaxe',
+  '⛏': 'pickaxe', '🏃': 'run', '⭐': 'star', '⚒': 'hammer',
+  // resources / elements (geometric glyphs)
+  '⚙': 'cog', '◈': 'rhombus', '✦': 'star-four-points', '❧': 'leaf',
+  '◆': 'rhombus-medium', '▲': 'triangle', '▽': 'triangle-down-outline',
+  '✣': 'flower', '❅': 'snowflake', '⬢': 'hexagon', '≋': 'weather-windy',
+  '⚡': 'flash',
+}
+
+// Resolve any stored icon value (MCI name OR legacy glyph) to a valid MCI name.
+export function resolveIconName(value: string): IconName {
+  return GLYPH_TO_ICON[value] ?? (value as IconName)
+}
+
+interface IconProps {
+  name: string
+  size?: number
+  color?: string | undefined
+  style?: TextStyle
+}
+
+export const Icon: React.FC<IconProps> = ({ name, size = 18, color = COLORS.textPrimary, style }) => (
+  <MaterialCommunityIcons name={resolveIconName(name)} size={size} color={color} style={style} />
+)
 
 // ---------------------------------------------------------------------------
 // Panel
@@ -124,12 +169,14 @@ interface SystemWindowProps {
   children: React.ReactNode
   title?: string
   variant?: 'info' | 'gold' | 'alert'
+  icon?: string   // optional MCI glyph rendered before the title
 }
 
 export const SystemWindow: React.FC<SystemWindowProps> = ({
   children,
   title = 'SYSTEM',
   variant = 'info',
+  icon,
 }) => {
   const borderColor =
     variant === 'gold' ? COLORS.systemGold :
@@ -150,7 +197,7 @@ export const SystemWindow: React.FC<SystemWindowProps> = ({
     <View style={[sysStyles.container, { borderColor }, glow]}>
       <View style={[sysStyles.header, { backgroundColor: headerBg, borderBottomColor: borderColor }]}>
         <Text style={[sysStyles.headerText, { color: borderColor }]}>
-          {'◆ '}{title}{' ◆'}
+          {icon ? <><Icon name={icon} size={12} color={borderColor} />{'  '}</> : '◆ '}{title}{' ◆'}
         </Text>
       </View>
       <View style={sysStyles.body}>{children}</View>
@@ -504,7 +551,7 @@ export const RankBadge: React.FC<RankBadgeProps> = ({ rank, size = 'md' }) => {
       ]}
     >
       <Text style={[styles.rankBadgeText, { color, fontSize }]}>
-        {rank === 'Sovereign' ? 'SOVEREIGN' : `RANK ${rank}`}
+        {rank === 'Sovereign' ? 'GRANDMASTER' : `RANK ${rank}`}
       </Text>
     </View>
   )

@@ -1,9 +1,38 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import type { Player, RunSession, SyncRunResponse, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, FortressBuildingKey, FortressCrop, ResourceType, PlayerTraits, TraitKey } from '@/types'
-import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS, EMPTY_TRAITS } from '@/types'
+import type { Player, RunSession, SyncRunResponse, RunSummary, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, FortressBuildingKey, FortressCrop, ResourceType, PlayerTraits, TraitKey } from '@/types'
+import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS, EMPTY_TRAITS, maxStamina, STAMINA_PER_KM } from '@/types'
+
+// Passive stamina regen: +1 point every 6 minutes.
+const STAMINA_REGEN_MS = 6 * 60 * 1000
+
+// Max stamina for a player, from their Stamina (END) stat. Null player → base.
+function staminaMax(player: Player | null): number {
+  return maxStamina(player?.stats?.END ?? 0)
+}
 import type { PublicPlayer } from '@/lib/supabase'
+
+// Recursively merge `source` over `target`, returning a new object. Used by the
+// persist `merge` so newly-added (possibly nested) fields always fall back to
+// their defaults instead of being `undefined` when older storage lacks them.
+function deepMerge<T>(target: T, source: Partial<T>): T {
+  if (Array.isArray(target)) return (source ?? target) as T
+  if (target && typeof target === 'object') {
+    const out: any = { ...target }
+    for (const key of Object.keys(source ?? {})) {
+      const sv = (source as any)[key]
+      if (sv === undefined) continue
+      const tv = (target as any)[key]
+      out[key] =
+        tv && typeof tv === 'object' && !Array.isArray(tv) && sv && typeof sv === 'object'
+          ? deepMerge(tv, sv)
+          : sv
+    }
+    return out
+  }
+  return (source ?? target) as T
+}
 
 export interface PartyInvite {
   id: string
@@ -34,11 +63,20 @@ interface AeternumState {
   // Latest resolved run
   latestRunResult: SyncRunResponse | null
 
+  // Raw activity metrics from the last synced run (distance/steps/HR/duration)
+  lastRunSummary: RunSummary | null
+
   // Local game progress (persisted)
   completedQuestIds: string[]
   clearedDungeonIds: string[]
   characterSetupDone: boolean
   healthPermissionAsked: boolean
+
+  // Map-action stamina (persisted). `stamina` is the current value; max is
+  // derived from the player's Stamina (END) stat. `staminaUpdatedAt` lets us
+  // compute passive regen since the last interaction.
+  stamina: number
+  staminaUpdatedAt: number
 
   // Gear & inventory (persisted)
   inventory: PlayerInventory
@@ -74,11 +112,18 @@ interface AeternumState {
   setSyncState: (state: AeternumState['syncState']) => void
   setSyncError: (error: string | null) => void
   setLatestRunResult: (result: SyncRunResponse | null) => void
-  applyRunResult: (result: SyncRunResponse) => void
+  applyRunResult: (result: SyncRunResponse, summary?: RunSummary | null) => void
   completeQuest: (questId: string, statRewards: Partial<import('@/types').Stats>) => void
   clearDungeon: (dungeonId: string, statRewards: Partial<import('@/types').Stats>) => void
   setCharacterSetupDone: (done: boolean) => void
   setHealthPermissionAsked: (asked: boolean) => void
+
+  // Stamina — current value after passive regen is folded in.
+  getStamina: () => number
+  // Spend stamina if affordable; returns false (no-op) when insufficient.
+  spendStamina: (amount: number) => boolean
+  // Restore stamina (e.g. from a synced run), clamped to max.
+  restoreStamina: (amount: number) => void
 
   // Actions — party
   setPartyMembers: (members: PublicPlayer[]) => void
@@ -115,6 +160,7 @@ interface AeternumState {
   unlockSkill: (skillId: string) => void
   setMyTerritories: (t: Territory[]) => void
   addMyTerritory: (t: Territory) => void
+  updateMyTerritory: (t: Territory) => void
   setNearbyTerritories: (t: Territory[]) => void
   setNearbyNodes: (n: ResourceNode[]) => void
 
@@ -135,6 +181,7 @@ const INITIAL_TRANSIENT = {
   syncState: 'idle' as const,
   syncError: null,
   latestRunResult: null,
+  lastRunSummary: null,
   partyMembers: [] as PublicPlayer[],
   partyInvites: [] as PartyInvite[],
   lastCoOpResult: null as CoOpGateResponse | null,
@@ -149,6 +196,8 @@ const INITIAL_PERSISTENT = {
   clearedDungeonIds: [],
   characterSetupDone: false,
   healthPermissionAsked: false,
+  stamina: 50,                       // STAMINA_BASE — full at start
+  staminaUpdatedAt: Date.now(),
   inventory: EMPTY_INVENTORY,
   equipped: EMPTY_LOADOUT,
   unlockedTalentIds: [],
@@ -186,12 +235,21 @@ export const useStore = create<AeternumState>()(
       setSyncError: (syncError) => set({ syncError }),
       setLatestRunResult: (result) => set({ latestRunResult: result }),
 
-      applyRunResult: (result) => {
-        const { player } = get()
+      applyRunResult: (result, summary) => {
+        const { player, stamina, staminaUpdatedAt } = get()
         if (!player) return
+        const updatedPlayer = applyStatRewards(player, result.stat_gains as Partial<import('@/types').Stats>)
+        // Running refills map stamina (the fitness → map link).
+        const max = staminaMax(updatedPlayer)
+        const regen = Math.floor((Date.now() - staminaUpdatedAt) / STAMINA_REGEN_MS)
+        const current = Math.min(max, stamina + Math.max(0, regen))
+        const refill = summary ? Math.round(summary.distance_km * STAMINA_PER_KM) : 0
         set({
-          player: applyStatRewards(player, result.stat_gains as Partial<import('@/types').Stats>),
+          player: updatedPlayer,
           latestRunResult: result,
+          lastRunSummary: summary ?? null,
+          stamina: Math.min(max, current + refill),
+          staminaUpdatedAt: Date.now(),
           syncState: 'done',
           syncError: null,
         })
@@ -221,6 +279,32 @@ export const useStore = create<AeternumState>()(
 
       setCharacterSetupDone: (done) => set({ characterSetupDone: done }),
       setHealthPermissionAsked: (asked) => set({ healthPermissionAsked: asked }),
+
+      // Stamina with passive regen: 1 point per STAMINA_REGEN_MS since last update,
+      // clamped to the player's max. Folding regen in on read keeps it accurate
+      // without a timer.
+      getStamina: () => {
+        const { stamina, staminaUpdatedAt, player } = get()
+        const max = staminaMax(player)
+        const regen = Math.floor((Date.now() - staminaUpdatedAt) / STAMINA_REGEN_MS)
+        return Math.min(max, stamina + Math.max(0, regen))
+      },
+      spendStamina: (amount) => {
+        const { stamina, staminaUpdatedAt, player } = get()
+        const max = staminaMax(player)
+        const regen = Math.floor((Date.now() - staminaUpdatedAt) / STAMINA_REGEN_MS)
+        const current = Math.min(max, stamina + Math.max(0, regen))
+        if (current < amount) return false
+        set({ stamina: current - amount, staminaUpdatedAt: Date.now() })
+        return true
+      },
+      restoreStamina: (amount) => {
+        const { stamina, staminaUpdatedAt, player } = get()
+        const max = staminaMax(player)
+        const regen = Math.floor((Date.now() - staminaUpdatedAt) / STAMINA_REGEN_MS)
+        const current = Math.min(max, stamina + Math.max(0, regen))
+        set({ stamina: Math.min(max, current + amount), staminaUpdatedAt: Date.now() })
+      },
 
       // Party
       setPartyMembers: (members) => set({ partyMembers: members }),
@@ -346,6 +430,9 @@ export const useStore = create<AeternumState>()(
       })),
       setMyTerritories: (t) => set({ myTerritories: t }),
       addMyTerritory: (t) => set((s) => ({ myTerritories: [t, ...s.myTerritories] })),
+      updateMyTerritory: (t) => set((s) => ({
+        myTerritories: s.myTerritories.map((x) => (x.id === t.id ? t : x)),
+      })),
       setNearbyTerritories: (t) => set({ nearbyTerritories: t }),
       setNearbyNodes: (n) => set({ nearbyNodes: n }),
 
@@ -358,12 +445,27 @@ export const useStore = create<AeternumState>()(
     }),
     {
       name: 'aeternum-local',
+      version: 1,
       storage: createJSONStorage(() => AsyncStorage),
+      // Older installs persisted with no version (treated as 0). The deep `merge`
+      // below already backfills any missing fields, so migration is a no-op —
+      // but a `migrate` fn MUST exist whenever `version` is set, or Zustand
+      // throws "couldn't be migrated since no migrate function was provided".
+      migrate: (persisted) => persisted as Partial<AeternumState>,
+      // Deep-merge persisted state over fresh defaults so newly-added fields
+      // (and nested sub-fields) always fall back to defaults instead of being
+      // `undefined`. Zustand's DEFAULT merge is shallow, which lets a stale
+      // persisted object (e.g. an old `fortress` missing `defense_slots`)
+      // replace the whole default → `undefined` reads → red-screen crash.
+      merge: (persisted, current) =>
+        deepMerge(current, (persisted ?? {}) as Partial<AeternumState>),
       partialize: (state) => ({
         completedQuestIds: state.completedQuestIds,
         clearedDungeonIds: state.clearedDungeonIds,
         characterSetupDone: state.characterSetupDone,
         healthPermissionAsked: state.healthPermissionAsked,
+        stamina: state.stamina,
+        staminaUpdatedAt: state.staminaUpdatedAt,
         inventory: state.inventory,
         equipped: state.equipped,
         unlockedTalentIds: state.unlockedTalentIds,
@@ -384,6 +486,7 @@ export const selectPlayer = (s: AeternumState) => s.player
 export const selectStats = (s: AeternumState) => s.player?.stats
 export const selectSyncState = (s: AeternumState) => s.syncState
 export const selectLatestRunResult = (s: AeternumState) => s.latestRunResult
+export const selectLastRunSummary = (s: AeternumState) => s.lastRunSummary
 export const selectRunHistory = (s: AeternumState) => s.runHistory
 export const selectUserId = (s: AeternumState) => s.userId
 export const selectCompletedQuestIds = (s: AeternumState) => s.completedQuestIds

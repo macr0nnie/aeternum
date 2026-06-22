@@ -8,13 +8,12 @@
 // If no run has been resolved this session, shows a prompt to sync first.
 // =============================================================================
 
-import React from 'react'
-import { View, ScrollView, FlatList, StyleSheet } from 'react-native'
+import { View, ScrollView, StyleSheet } from 'react-native'
 import { router } from 'expo-router'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectLatestRunResult, selectPlayer } from '@/store/useStore'
 import { Panel, Heading, Label, Button, StatChip, Spacer, Divider } from '@/components/UI'
-import { COLORS, SPACING, rarityColor, elementAccent } from '@/theme/tokens'
+import { COLORS, SPACING, rarityColor } from '@/theme/tokens'
 import { STAT_KEYS, type Element, type Reward, type StatKey } from '@/types'
 
 export default function RewardsScreen() {
@@ -22,7 +21,6 @@ export default function RewardsScreen() {
   const player = useStore(selectPlayer)
 
   const element = (player?.primary_element as Element | null) ?? null
-  const palette = elementAccent(element)
 
   if (!result) {
     return (

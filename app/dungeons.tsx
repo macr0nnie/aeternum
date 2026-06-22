@@ -11,13 +11,14 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectPlayer, selectClearedDungeonIds, selectEquipped, selectPartyMembers, selectUnlockedSkillIds } from '@/store/useStore'
 import {
   Heading, Label, Button, Spacer, Divider, DungeonRankBadge, SystemWindow,
-  CornerPanel, SectionHeader, StatBar,
+  SectionHeader, StatBar, Icon,
 } from '@/components/UI'
 import {
   COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS,
   elementAccent, SHADOWS,
 } from '@/theme/tokens'
-import { DUNGEON_ENTRIES, STAT_KEYS, STAT_LABELS, STAT_SOURCES, type DungeonEntry, type Element, type StatKey, type TraitKey } from '@/types'
+import { DUNGEON_ENTRIES, STAT_KEYS, RIFT_INFLUENCE_REWARD, type DungeonEntry, type Element, type TraitKey, type DroppedReward, type Stats } from '@/types'
+import { RewardPopup } from '@/components/RewardPopup'
 import { resolveCoOpGate, type PublicPlayer } from '@/lib/supabase'
 import { computeRewards } from '@/lib/rewardEngine'
 
@@ -29,7 +30,7 @@ const C_PLUS_RANKS = new Set(['C', 'B', 'A', 'S'])
 const WIN_PROB_FLOOR = 0.05   // always at least 5%
 const WIN_PROB_CEIL  = 0.97   // never guaranteed
 
-function calcWinProbability(dungeon: DungeonEntry, stats: Record<string, number>, totalDistance: number): number {
+function calcWinProbability(dungeon: DungeonEntry, stats: Record<string, number>, _totalDistance: number): number {
   const reqs = dungeon.statRequirements
   const entries = Object.entries(reqs)
   if (entries.length === 0) return WIN_PROB_CEIL
@@ -56,7 +57,7 @@ function winProbLabel(prob: number): { label: string; color: string } {
 }
 
 // ---------------------------------------------------------------------------
-// Win probability modal (C+ gates only)
+// Win probability modal (C+ rifts only)
 // ---------------------------------------------------------------------------
 
 interface WinProbModalProps {
@@ -70,14 +71,14 @@ interface WinProbModalProps {
 function WinProbModal({ dungeon, winProb, hasVoidLens, onConfirm, onClose }: WinProbModalProps) {
   const pct = Math.round(winProb * 100)
   const { label, color } = winProbLabel(winProb)
-  const rankColor = DUNGEON_RANK_COLORS[dungeon.rank]
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           <SystemWindow
-            title="⚠  GATE ANALYSIS"
+            title="RIFT ANALYSIS"
+            icon="alert"
             variant={dungeon.rank === 'S' ? 'gold' : dungeon.rank === 'A' || dungeon.rank === 'B' ? 'alert' : 'info'}
           >
             <Text style={styles.modalDungeonName}>{dungeon.name.toUpperCase()}</Text>
@@ -102,13 +103,13 @@ function WinProbModal({ dungeon, winProb, hasVoidLens, onConfirm, onClose }: Win
             <Spacer size="xs" />
             <Text style={styles.probWarning}>
               {winProb < 0.5
-                ? 'Defeat in this gate will cost you stat points. Prepare carefully.'
+                ? 'Defeat in this rift will cost you stat points. Prepare carefully.'
                 : 'Your stats suggest a solid chance of success. Proceed with confidence.'}
             </Text>
 
             <Spacer size="md" />
             <View style={styles.modalActions}>
-              <Button label="◆ ENTER GATE ◆" variant="system" onPress={onConfirm} fullWidth />
+              <Button label="◆ ENTER RIFT ◆" variant="system" onPress={onConfirm} fullWidth />
               <Spacer size="sm" />
               <Button label="Retreat" variant="ghost" onPress={onClose} fullWidth />
             </View>
@@ -133,7 +134,6 @@ interface CoOpModalProps {
 
 function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpModalProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const rankColor = DUNGEON_RANK_COLORS[dungeon.rank] ?? COLORS.system
 
   function toggle(id: string) {
     setSelected(prev => {
@@ -150,7 +150,7 @@ function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpMo
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
-          <SystemWindow title="⚔  CO-OP GATE" variant="info">
+          <SystemWindow title="CO-OP RIFT" icon="sword-cross" variant="info">
             <Text style={styles.modalDungeonName}>{dungeon.name.toUpperCase()}</Text>
             <Spacer size="xs" />
             <Text style={[styles.coopBonus, { color: selected.size > 0 ? COLORS.success : COLORS.textTertiary }]}>
@@ -160,7 +160,7 @@ function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpMo
 
             {partyMembers.length === 0 ? (
               <Text style={styles.coopEmpty}>
-                No party members yet. Add hunters from the Party tab to tackle gates together.
+                No party members yet. Add adventurers from the Party tab to tackle rifts together.
               </Text>
             ) : (
               <>
@@ -182,7 +182,7 @@ function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpMo
                         </Text>
                       </View>
                       <View style={[coopStyles.checkbox, isSelected && { backgroundColor: COLORS.success }]}>
-                        {isSelected && <Text style={coopStyles.checkmark}>✓</Text>}
+                        {isSelected && <Icon name="check" size={12} color={COLORS.ground} style={coopStyles.checkmark} />}
                       </View>
                     </TouchableOpacity>
                   )
@@ -226,7 +226,7 @@ function CoOpResultModal({ won, winProb, participantCount, statGains, onClose }:
       <View style={styles.modalOverlay}>
         <View style={styles.modalContainer}>
           <SystemWindow
-            title={won ? '◆ GATE CLEARED ◆' : '◆ GATE FAILED ◆'}
+            title={won ? '◆ RIFT CLEARED ◆' : '◆ RIFT FAILED ◆'}
             variant={won ? 'gold' : 'alert'}
           >
             <Text style={[styles.coopResultLine, { color: won ? COLORS.systemGold : COLORS.systemAlert }]}>
@@ -293,7 +293,7 @@ export default function DungeonsScreen() {
   const clearedIds = useStore(selectClearedDungeonIds)
   const equipped = useStore(selectEquipped)
   const partyMembers = useStore(selectPartyMembers)
-  const { clearDungeon, addTrait, unlockSkill } = useStore()
+  const { clearDungeon, addTrait, unlockSkill, addInfluence } = useStore()
   const traits = useStore(s => s.traits)
   const unlockedSkillIds = useStore(selectUnlockedSkillIds) as string[]
 
@@ -305,6 +305,10 @@ export default function DungeonsScreen() {
     }
     // Skill unlock
     if (rewards.skillUnlock) unlockSkill(rewards.skillUnlock)
+    // Influence — only on FIRST clear (don't farm a single rift for influence).
+    if (!clearedIds.includes(dungeon.id)) {
+      addInfluence(RIFT_INFLUENCE_REWARD[dungeon.rank] ?? 0)
+    }
     return rewards.statRewards
   }
 
@@ -314,6 +318,24 @@ export default function DungeonsScreen() {
   const [showCoOp, setShowCoOp] = useState(false)
   const [coOpLoading, setCoOpLoading] = useState(false)
   const [coOpResult, setCoOpResult] = useState<{ won: boolean; winProb: number; participantCount: number; statGains: Record<string, number> } | null>(null)
+  const [clearRewards, setClearRewards] = useState<DroppedReward[]>([])
+
+  // Build reward-popup entries from a dungeon clear's stat gains.
+  function showClearRewards(dungeon: DungeonEntry, statGains: Record<string, number>) {
+    const rewards: DroppedReward[] = Object.entries(statGains).map(([stat, amount], i) => {
+      const statGainsObj: Partial<Stats> = { [stat]: amount }
+      return {
+        id: `${dungeon.id}_${stat}_${i}`,
+        kind: 'stat_gain' as const,
+        rarity: 'rare' as const,
+        name: `+${amount} ${stat}`,
+        description: `${dungeon.name} reward`,
+        icon: '◆',
+        statGains: statGainsObj,
+      }
+    })
+    if (rewards.length > 0) setClearRewards(rewards)
+  }
 
   const element = (player?.primary_element as Element | null) ?? null
   const palette = elementAccent(element)
@@ -333,7 +355,7 @@ export default function DungeonsScreen() {
 
   function handleEnterDungeon(dungeon: DungeonEntry) {
     setSelectedDungeon(dungeon)
-    // Show win probability analysis first for C+ gates
+    // Show win probability analysis first for C+ rifts
     if (C_PLUS_RANKS.has(dungeon.rank)) {
       setShowWinProb(true)
     } else {
@@ -354,6 +376,7 @@ export default function DungeonsScreen() {
       // Solo — use local clear path with personalized rewards
       const statRewards = applyPersonalizedRewards(selectedDungeon)
       clearDungeon(selectedDungeon.id, statRewards)
+      showClearRewards(selectedDungeon, statRewards as Record<string, number>)
       setSelectedDungeon(null)
       return
     }
@@ -365,7 +388,9 @@ export default function DungeonsScreen() {
       if (!result) throw new Error('No response from server')
       if (result.won) {
         const statRewards = applyPersonalizedRewards(selectedDungeon)
-        clearDungeon(selectedDungeon.id, result.outcomes?.find(o => o.player_id === player.id)?.stat_gains ?? statRewards)
+        const gains = result.outcomes?.find(o => o.player_id === player.id)?.stat_gains ?? statRewards
+        clearDungeon(selectedDungeon.id, gains)
+        // Co-op shows its own CoOpResultModal with gains — no extra popup here.
       }
       setCoOpResult({
         won: result.won,
@@ -379,6 +404,7 @@ export default function DungeonsScreen() {
       if (localWon) {
         const statRewards = applyPersonalizedRewards(selectedDungeon)
         clearDungeon(selectedDungeon.id, statRewards)
+        // Co-op fallback also surfaces gains via CoOpResultModal below.
       }
       setCoOpResult({
         won: localWon,
@@ -396,6 +422,7 @@ export default function DungeonsScreen() {
     if (!selectedDungeon) return
     const statRewards = applyPersonalizedRewards(selectedDungeon)
     clearDungeon(selectedDungeon.id, statRewards)
+    showClearRewards(selectedDungeon, statRewards as Record<string, number>)
     setShowClearModal(false)
     setSelectedDungeon(null)
   }
@@ -413,16 +440,16 @@ export default function DungeonsScreen() {
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
 
-        <Heading size="xl" element={element}>Gate Map</Heading>
+        <Heading size="xl" element={element}>Rift Map</Heading>
         <Spacer size="xs" />
         <Label variant="secondary">
-          Meet the stat requirements to enter a gate. Cleared gates award permanent stat bonuses.
+          Meet the stat requirements to enter a rift. Cleared rifts award permanent stat bonuses.
         </Label>
 
         <Spacer size="lg" />
 
         {/* Player stat summary */}
-        <SystemWindow title="HUNTER STATUS">
+        <SystemWindow title="ADVENTURER STATUS">
           <View style={styles.hunterRankRow}>
             <Label variant="tertiary" size="xs">CURRENT RANK</Label>
             <View style={[styles.hunterRankPill, { borderColor: DUNGEON_RANK_COLORS[player?.rank ?? 'F'] }]}>
@@ -445,19 +472,19 @@ export default function DungeonsScreen() {
           </View>
         </SystemWindow>
 
-        <SectionHeader title="GATES" color={palette.base} />
+        <SectionHeader title="RIFTS" color={palette.base} />
 
         {RANK_ORDER.map((rank) => {
-          const dungeons = (grouped[rank] ?? []).filter(d =>
-            clearedIds.includes(d.id) || meetsRequirements(d),
-          )
+          // Show ALL rifts for the rank — locked ones render greyed with their
+          // requirements, so players can see what to work toward (don't hide them).
+          const dungeons = grouped[rank] ?? []
           if (dungeons.length === 0) return null
           const rankColor = DUNGEON_RANK_COLORS[rank]
           return (
             <View key={rank}>
               <View style={[styles.rankHeader, { borderLeftColor: rankColor }]}>
                 <Text style={[styles.rankLabel, { color: rankColor }]}>
-                  {`RANK ${rank} GATES`}
+                  {`RANK ${rank} RIFTS`}
                 </Text>
               </View>
               {dungeons.map((dungeon) => (
@@ -465,6 +492,9 @@ export default function DungeonsScreen() {
                   key={dungeon.id}
                   dungeon={dungeon}
                   cleared={clearedIds.includes(dungeon.id)}
+                  locked={!clearedIds.includes(dungeon.id) && !meetsRequirements(dungeon)}
+                  stats={stats}
+                  totalDistance={totalDistance}
                   onEnter={() => handleEnterDungeon(dungeon)}
                 />
               ))}
@@ -476,7 +506,7 @@ export default function DungeonsScreen() {
         <Spacer size="xl" />
       </ScrollView>
 
-      {/* Win probability modal — C+ gates only */}
+      {/* Win probability modal — C+ rifts only */}
       {showWinProb && selectedDungeon && (
         <WinProbModal
           dungeon={selectedDungeon}
@@ -504,7 +534,7 @@ export default function DungeonsScreen() {
           <View style={[styles.modalOverlay, { justifyContent: 'center', alignItems: 'center' }]}>
             <ActivityIndicator size="large" color={COLORS.system} />
             <Text style={{ fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.system, marginTop: SPACING.md, letterSpacing: LETTER_SPACING.wide }}>
-              RESOLVING GATE...
+              RESOLVING RIFT...
             </Text>
           </View>
         </Modal>
@@ -521,6 +551,15 @@ export default function DungeonsScreen() {
         />
       )}
 
+      {/* Solo clear reward popup */}
+      {clearRewards.length > 0 && (
+        <RewardPopup
+          rewards={clearRewards}
+          title="RIFT CLEARED"
+          onClose={() => setClearRewards([])}
+        />
+      )}
+
       {/* Clear confirmation modal */}
       <Modal
         visible={showClearModal}
@@ -532,7 +571,7 @@ export default function DungeonsScreen() {
           <View style={styles.modalContainer}>
             {selectedDungeon && (
               <SystemWindow
-                title="GATE ENTRY CONFIRMED"
+                title="RIFT ENTRY CONFIRMED"
                 variant={selectedDungeon.rank === 'S' ? 'gold' : selectedDungeon.rank === 'A' || selectedDungeon.rank === 'B' ? 'alert' : 'info'}
               >
                 <Text style={styles.modalDungeonName}>{selectedDungeon.name.toUpperCase()}</Text>
@@ -552,7 +591,7 @@ export default function DungeonsScreen() {
                 <Spacer size="lg" />
                 <View style={styles.modalActions}>
                   <Button
-                    label="Clear Gate"
+                    label="Clear Rift"
                     variant="system"
                     onPress={handleClear}
                     fullWidth
@@ -581,14 +620,30 @@ export default function DungeonsScreen() {
 function DungeonCard({
   dungeon,
   cleared,
+  locked,
+  stats,
+  totalDistance,
   onEnter,
 }: {
   dungeon: DungeonEntry
   cleared: boolean
+  locked: boolean
+  stats: Record<string, number>
+  totalDistance: number
   onEnter: () => void
 }) {
   const rankColor = DUNGEON_RANK_COLORS[dungeon.rank]
   const [expanded, setExpanded] = useState(false)
+
+  // Unmet requirements, for the locked state.
+  const unmet: string[] = []
+  if (totalDistance < dungeon.minDistanceKm) {
+    unmet.push(`${totalDistance.toFixed(1)}/${dungeon.minDistanceKm} km`)
+  }
+  for (const [key, minVal] of Object.entries(dungeon.statRequirements)) {
+    const cur = stats[key] ?? 0
+    if (cur < (minVal as number)) unmet.push(`${key} ${cur}/${minVal}`)
+  }
 
   return (
     <TouchableOpacity
@@ -597,32 +652,40 @@ function DungeonCard({
       style={[
         cardStyles.card,
         {
-          borderColor: cleared ? rankColor + '60' : rankColor + 'aa',
+          borderColor: cleared ? rankColor + '60' : locked ? COLORS.borderMid : rankColor + 'aa',
           backgroundColor: cleared ? COLORS.surfaceHigh : COLORS.surface,
-          opacity: cleared ? 0.6 : 1,
+          opacity: cleared ? 0.6 : locked ? 0.75 : 1,
         },
-        !cleared && { ...(SHADOWS.md as object) },
+        !cleared && !locked && { ...(SHADOWS.md as object) },
       ]}
     >
       {/* Top row */}
       <View style={cardStyles.topRow}>
-        <View style={[cardStyles.rankStripe, { backgroundColor: rankColor }]} />
+        <View style={[cardStyles.rankStripe, { backgroundColor: locked ? COLORS.borderMid : rankColor }]} />
         <View style={cardStyles.info}>
           <View style={cardStyles.nameRow}>
             <DungeonRankBadge rank={dungeon.rank} size="sm" />
-            <Text style={[cardStyles.name, { color: cleared ? COLORS.textTertiary : COLORS.textPrimary }]}>
-              {cleared ? `[CLEARED] ${dungeon.name.toUpperCase()}` : dungeon.name.toUpperCase()}
+            <Text style={[cardStyles.name, { color: cleared || locked ? COLORS.textTertiary : COLORS.textPrimary }]}>
+              {cleared ? `[CLEARED] ${dungeon.name.toUpperCase()}`
+                : locked ? `[LOCKED] ${dungeon.name.toUpperCase()}`
+                : dungeon.name.toUpperCase()}
             </Text>
           </View>
           <Text style={cardStyles.desc} numberOfLines={expanded ? undefined : 1}>
             {dungeon.description}
           </Text>
+          {locked && (
+            <Text style={[cardStyles.lockReq, { color: COLORS.warning }]} numberOfLines={2}>
+              {`Requires: ${unmet.join(' · ')}`}
+            </Text>
+          )}
         </View>
-        {cleared && <Text style={[cardStyles.lockIcon, { color: rankColor }]}>✓</Text>}
+        {cleared && <Icon name="check-bold" size={18} color={rankColor} style={cardStyles.lockIcon} />}
+        {locked && <Icon name="lock" size={18} color={COLORS.textTertiary} style={cardStyles.lockIcon} />}
       </View>
 
-      {/* Expanded: rewards + enter button */}
-      {expanded && !cleared && (
+      {/* Expanded: rewards + enter button (only when unlocked & not cleared) */}
+      {expanded && !cleared && !locked && (
         <View style={cardStyles.expandedSection}>
           <Text style={[cardStyles.flavorText, { color: rankColor + 'cc' }]}>
             {`"${dungeon.flavor}"`}
@@ -643,7 +706,7 @@ function DungeonCard({
             activeOpacity={0.75}
           >
             <Text style={[cardStyles.enterBtnText, { color: rankColor }]}>
-              {'◆ ENTER GATE ◆'}
+              {'◆ ENTER RIFT ◆'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -839,6 +902,11 @@ const cardStyles = StyleSheet.create({
     fontSize: FONT_SIZES.xs,
     color: COLORS.textTertiary,
     lineHeight: FONT_SIZES.xs * 1.6,
+  },
+  lockReq: {
+    fontFamily: FONTS.mono,
+    fontSize: FONT_SIZES.xs,
+    marginTop: 2,
   },
   lockIcon: {
     fontSize: 18,

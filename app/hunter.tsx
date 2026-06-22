@@ -1,5 +1,5 @@
 // =============================================================================
-// Aeternum — Hunter Screen
+// Aeternum — Adventurer Screen
 // Unified scroll: Stats · Loadout · Skills · Bag  |  Craft (toggle)
 // =============================================================================
 import { useState } from 'react'
@@ -10,7 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectPlayer, selectInventory, selectEquipped } from '@/store/useStore'
 import {
   SystemWindow, CornerPanel, SectionHeader, StatBar, DungeonRankBadge,
-  Label, Spacer,
+  Label, Spacer, Icon,
 } from '@/components/UI'
 import {
   COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER,
@@ -22,18 +22,19 @@ import {
 } from '@/data/archetypes'
 import type { GearItem, Relic, GearLoadout, CraftRecipe, RecipeCategory, Element } from '@/types'
 import {
-  STAT_KEYS, STAT_SOURCES, ELEMENT_LABELS, ELEMENT_EMOJI,
+  gearStatBonuses,
+  STAT_KEYS, STAT_SOURCES, ELEMENT_LABELS, ELEMENT_ICONS,
   TRAIT_KEYS, TRAIT_LABELS, TRAIT_ICONS,
   PLAYER_SKILLS, type PlayerSkill, type TraitKey,
 } from '@/types'
 import { selectResources, selectUnlockedSkillIds, selectTraits } from '@/store/useStore'
 
 const ARCHETYPE_ICONS: Record<string, string> = {
-  pathfinder:    '🏔',
-  vanguard:      '⚔️',
-  quartermaster: '📦',
-  sentinel:      '🛡️',
-  cartographer:  '🗺️',
+  pathfinder:    'image-filter-hdr',
+  vanguard:      'sword-cross',
+  quartermaster: 'package-variant-closed',
+  sentinel:      'shield',
+  cartographer:  'map',
 }
 
 // =============================================================================
@@ -55,10 +56,12 @@ function ingredientLabel(id: string): string {
 function gearStatDiff(equipped: GearLoadout, candidate: GearItem): Array<{ key: string; delta: number }> {
   const slot = candidate.slot as keyof Omit<GearLoadout, 'relic'>
   const current = equipped[slot]
-  const keys = new Set([...Object.keys(candidate.statBonuses), ...(current ? Object.keys(current.statBonuses) : [])])
+  const candidateBonuses = gearStatBonuses(candidate) as Record<string, number>
+  const currentBonuses = gearStatBonuses(current) as Record<string, number>
+  const keys = new Set([...Object.keys(candidateBonuses), ...Object.keys(currentBonuses)])
   return Array.from(keys).map(k => ({
     key: k,
-    delta: ((candidate.statBonuses as Record<string, number>)[k] ?? 0) - ((current?.statBonuses as Record<string, number> | undefined)?.[k] ?? 0),
+    delta: (candidateBonuses[k] ?? 0) - (currentBonuses[k] ?? 0),
   }))
 }
 
@@ -309,7 +312,9 @@ export default function HunterScreen() {
           <View style={{ marginLeft: SPACING.sm }}>
             <Text style={styles.username}>{player?.username ?? '—'}</Text>
             <Text style={[styles.element, { color: palette.base }]}>
-              {element ? ELEMENT_LABELS[element] : 'Unawakened'} · {player?.title ?? ''}
+              {primaryArchetype
+                ? `${getArchetypeDef(primaryArchetype.id)?.tiers.find(t => t.rank === primaryArchetype.rank)?.name ?? 'Adventurer'} · Rank ${player?.rank ?? 'F'}`
+                : `Novice · Rank ${player?.rank ?? 'F'}`}
             </Text>
           </View>
         </View>
@@ -321,7 +326,15 @@ export default function HunterScreen() {
             activeOpacity={0.75}
           >
             <Text style={[styles.craftToggleTxt, showCraft && styles.craftToggleTxtActive]}>
-              {showCraft ? '← PROFILE' : '⚔ CRAFT'}
+              {showCraft ? (
+                <>
+                  <Icon name="arrow-left" size={13} color={COLORS.system} /> PROFILE
+                </>
+              ) : (
+                <>
+                  <Icon name="sword-cross" size={13} color={COLORS.system} /> CRAFT
+                </>
+              )}
             </Text>
           </TouchableOpacity>
         </View>
@@ -340,7 +353,7 @@ export default function HunterScreen() {
               return (
                 <View style={identity.card}>
                   <View style={identity.cardHeader}>
-                    <Text style={identity.archIcon}>{ARCHETYPE_ICONS[primaryArchetype.id] ?? '◆'}</Text>
+                    <Icon name={ARCHETYPE_ICONS[primaryArchetype.id] ?? 'rhombus-medium'} size={28} color={palette.bright} style={identity.archIcon} />
                     <View style={{ flex: 1 }}>
                       <Text style={[identity.tierName, { color: palette.bright }]}>{tierName.toUpperCase()}</Text>
                       <Text style={identity.tierRank}>TIER {primaryArchetype.rank} / 5</Text>
@@ -360,7 +373,7 @@ export default function HunterScreen() {
                         const pct = Math.min(1, have / needed)
                         return (
                           <View key={k} style={identity.progressRow}>
-                            <Text style={identity.progressLabel}>{TRAIT_ICONS[k as keyof typeof TRAIT_ICONS]} {TRAIT_LABELS[k as keyof typeof TRAIT_LABELS]} {have}/{needed}</Text>
+                            <Text style={identity.progressLabel}><Icon name={TRAIT_ICONS[k as keyof typeof TRAIT_ICONS]} size={12} color={COLORS.textSecondary} /> {TRAIT_LABELS[k as keyof typeof TRAIT_LABELS]} {have}/{needed}</Text>
                             <View style={identity.progressTrack}>
                               <View style={[identity.progressFill, { width: `${pct * 100}%` as `${number}%`, backgroundColor: palette.base }]} />
                             </View>
@@ -386,7 +399,7 @@ export default function HunterScreen() {
                 const active = val > 0
                 return (
                   <View key={k} style={[identity.traitChip, active && { borderColor: palette.base + '60', backgroundColor: palette.dim }]}>
-                    <Text style={identity.traitIcon}>{TRAIT_ICONS[k]}</Text>
+                    <Icon name={TRAIT_ICONS[k]} size={18} color={active ? palette.base : COLORS.textTertiary} style={identity.traitIcon} />
                     <Text style={[identity.traitName, { color: active ? palette.bright : COLORS.textTertiary }]}>
                       {TRAIT_LABELS[k].toUpperCase()}
                     </Text>
@@ -401,7 +414,7 @@ export default function HunterScreen() {
             <Spacer size="sm" />
 
             {/* ── STATS ── */}
-            <SystemWindow title="HUNTER STATUS">
+            <SystemWindow title="ADVENTURER STATUS">
               {STAT_KEYS.map(k => (
                 <View key={k}>
                   <StatBar statKey={k} value={stats[k] ?? 0} color={palette.base} />
@@ -458,7 +471,7 @@ export default function HunterScreen() {
             {/* ── SKILLS ── */}
             <SectionHeader title="SKILLS" />
             <View style={styles.skillsManaRow}>
-              <Text style={styles.skillsManaLabel}>💧 MANA</Text>
+              <Text style={styles.skillsManaLabel}><Icon name="water" size={13} color={COLORS.system} /> MANA</Text>
               <Text style={styles.skillsManaVal}>{resources.mana}</Text>
             </View>
             <Spacer size="xs" />
@@ -480,7 +493,7 @@ export default function HunterScreen() {
                   <View style={[styles.skillStripe, { backgroundColor: isActive ? elColor : COLORS.borderMid }]} />
                   <View style={styles.skillBody}>
                     <View style={styles.skillHeader}>
-                      <Text style={styles.skillIcon}>{skill.icon}</Text>
+                      <Icon name={skill.icon} size={22} color={elColor} style={styles.skillIcon} />
                       <View style={styles.skillTitleGroup}>
                         <Text style={[styles.skillName, { color: elColor }]}>{skill.name}</Text>
                         <View style={styles.skillBadgeRow}>
@@ -495,7 +508,7 @@ export default function HunterScreen() {
                           {skill.element && (
                             <View style={[styles.elBadge, { borderColor: elColor + '60' }]}>
                               <Text style={styles.elBadgeTxt}>
-                                {ELEMENT_EMOJI[skill.element as Element]} {ELEMENT_LABELS[skill.element as Element].toUpperCase()}
+                                <Icon name={ELEMENT_ICONS[skill.element as Element]} size={11} color={elColor} /> {ELEMENT_LABELS[skill.element as Element].toUpperCase()}
                               </Text>
                             </View>
                           )}
@@ -506,7 +519,7 @@ export default function HunterScreen() {
                     <Text style={[styles.skillEffect, { color: COLORS.success }]}>{skill.effect}</Text>
                     {isActive && (
                       <View style={styles.skillFooter}>
-                        <Text style={styles.skillManaCost}>💧 {skill.manaCost ?? 0} mana</Text>
+                        <Text style={styles.skillManaCost}><Icon name="water" size={12} color={COLORS.system} /> {skill.manaCost ?? 0} mana</Text>
                         <TouchableOpacity
                           style={[styles.useBtn, !canUse && { opacity: 0.4 }]}
                           disabled={!canUse}
@@ -527,7 +540,7 @@ export default function HunterScreen() {
             {/* ── BAG ── */}
             <SectionHeader title="GEAR" />
             {inventory.gear.length === 0 ? (
-              <Text style={styles.emptyNote}>No gear yet. Clear gates to earn drops.</Text>
+              <Text style={styles.emptyNote}>No gear yet. Clear rifts to earn drops.</Text>
             ) : (
               <CornerPanel>
                 {inventory.gear.map((g, i) => (
@@ -539,7 +552,7 @@ export default function HunterScreen() {
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.bagName, { color: rarityColor(g.rarity) }]}>{g.name}</Text>
-                      <Text style={styles.bagSub}>{Object.entries(g.statBonuses).map(([k, v]) => `${k} +${v}`).join('  ')}</Text>
+                      <Text style={styles.bagSub}>{Object.entries(gearStatBonuses(g)).map(([k, v]) => `${k} +${v}`).join('  ')}</Text>
                     </View>
                     <View style={[styles.rarityBadge, { borderColor: rarityColor(g.rarity) }]}>
                       <Text style={[styles.rarityTxt, { color: rarityColor(g.rarity) }]}>{g.rarity.toUpperCase()}</Text>
@@ -598,7 +611,7 @@ export default function HunterScreen() {
             )}
 
             {inventory.gear.length === 0 && Object.keys(inventory.materials).length === 0 && (
-              <Text style={styles.emptyNote}>Your bag is empty. Clear gates to earn loot and materials.</Text>
+              <Text style={styles.emptyNote}>Your bag is empty. Clear rifts to earn loot and materials.</Text>
             )}
           </>
         ) : (
@@ -613,7 +626,7 @@ export default function HunterScreen() {
                   activeOpacity={0.75}
                 >
                   <Text style={[styles.craftTabTxt, craftTab === ct && styles.craftTabTxtActive]}>
-                    {ct === 'forge' ? '⚔  FORGE' : '⚗  BREW'}
+                    <Icon name={ct === 'forge' ? 'sword-cross' : 'flask'} size={13} color={craftTab === ct ? COLORS.system : COLORS.textTertiary} />  {ct === 'forge' ? 'FORGE' : 'BREW'}
                   </Text>
                 </TouchableOpacity>
               ))}

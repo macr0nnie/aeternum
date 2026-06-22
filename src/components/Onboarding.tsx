@@ -1,5 +1,5 @@
 // =============================================================================
-// Aeternum — Onboarding / Entry Gate
+// Aeternum — Onboarding / Entry Rift
 // =============================================================================
 // The app's front door. Rendered by the root layout as a full-screen overlay
 // whenever there is no authenticated player. Guests enter instantly — one tap
@@ -23,12 +23,20 @@ interface OnboardingProps {
   // "initializing" state instead of the Begin button to avoid a flash of the
   // entry screen for returning guests whose session is about to restore.
   ready: boolean
+  // Set by the root layout when the boot session check failed/timed out
+  // (backend unreachable). Surfaced so the user sees an error instead of a hang.
+  bootError?: string | null
+  // Retry the boot session check.
+  onRetry?: () => void
 }
 
-export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
+export const Onboarding: React.FC<OnboardingProps> = ({ ready, bootError, onRetry }) => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const setPlayer = useStore((s) => s.setPlayer)
+
+  // A boot-level error (unreachable backend) takes precedence over local state.
+  const displayError = error ?? bootError ?? null
 
   // Drop straight into a fully-local session — no network. Used when the backend
   // isn't configured/reachable so the app is always navigable for testing.
@@ -47,16 +55,29 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
     setError(null)
 
     try {
-      const { error: authError } = await signInAsGuest()
-      if (authError) {
+      // Bound the sign-in: if the backend is unreachable, getSession/signIn can
+      // hang and leave the button spinning forever ("Begin not letting me in").
+      const TIMEOUT = Symbol('timeout')
+      const result = await Promise.race([
+        signInAsGuest(),
+        new Promise<typeof TIMEOUT>((resolve) => setTimeout(() => resolve(TIMEOUT), 8000)),
+      ])
+      if (result === TIMEOUT) {
+        setError('Server is taking too long. Check your connection or enter offline.')
+        setLoading(false)
+        return
+      }
+      if (result.error) {
         // Most common cause: anonymous sign-ins not enabled, or the backend is
         // unreachable (e.g. local Supabase not running / wrong LAN IP).
-        setError(authError.message)
+        setError(result.error.message)
         setLoading(false)
         return
       }
       // On success the root layout's auth listener creates the player and unmounts
-      // this overlay — keep the button in its loading state until that happens.
+      // this overlay. Safety net: if that hasn't happened shortly, stop the spinner
+      // so the user isn't stuck — they can retry or enter offline.
+      setTimeout(() => setLoading(false), 8000)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reach the server.')
       setLoading(false)
@@ -72,7 +93,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
           <Text style={styles.title}>AETERNUM</Text>
           <View style={styles.accentLine} />
           <Spacer size="sm" />
-          <Label variant="tertiary" size="sm">Awaken your commander</Label>
+          <Label variant="tertiary" size="sm">Forge your legend</Label>
         </View>
 
         <View style={styles.action}>
@@ -90,13 +111,19 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready }) => {
                   ? 'Enter instantly as a guest — no account required'
                   : 'Offline mode — backend not configured. Progress stays on this device.'}
               </Label>
-              {error && (
+              {displayError && (
                 <>
                   <Spacer size="md" />
                   <Label variant="rarity" rarity="common" size="xs">
-                    {`Entry failed: ${error}`}
+                    {`Entry failed: ${displayError}`}
                   </Label>
                   <Spacer size="sm" />
+                  {onRetry && (
+                    <>
+                      <Button label="Retry" variant="ghost" onPress={onRetry} fullWidth />
+                      <Spacer size="sm" />
+                    </>
+                  )}
                   <Button
                     label="Continue Offline"
                     variant="ghost"

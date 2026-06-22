@@ -8,7 +8,7 @@ import {
 import { useStore, selectPlayer } from '@/store/useStore'
 import { DungeonRankBadge, SectionHeader } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING, elementAccent } from '@/theme/tokens'
-import { fetchLeaderboard, type LeaderboardCategory, type PublicPlayer } from '@/lib/supabase'
+import { fetchLeaderboard, type LeaderboardCategory } from '@/lib/supabase'
 import type { Element } from '@/types'
 
 // ---------------------------------------------------------------------------

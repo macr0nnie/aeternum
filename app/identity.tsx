@@ -8,7 +8,6 @@
 // across the whole app (via the store-driven palette in _layout.tsx).
 // =============================================================================
 
-import React from 'react'
 import { View, ScrollView, StyleSheet } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectPlayer } from '@/store/useStore'
@@ -110,7 +109,7 @@ export default function IdentityScreen() {
           <Spacer size="sm" />
           <View style={styles.statRow}>
             <Label variant="secondary">Total Distance</Label>
-            <Label variant="mono" size="md">{`${player.total_distance_km.toFixed(2)} km`}</Label>
+            <Label variant="mono" size="md">{`${player.total_distance_km.toFixed(1)} km`}</Label>
           </View>
           <View style={styles.statRow}>
             <Label variant="secondary">Titles Earned</Label>

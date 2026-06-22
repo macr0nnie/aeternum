@@ -6,7 +6,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet, Modal,
 } from 'react-native'
 import { useStore, selectInventory, selectPlayer } from '@/store/useStore'
-import { SystemWindow, CornerPanel, SectionHeader } from '@/components/UI'
+import { SystemWindow, CornerPanel, SectionHeader, Icon } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING } from '@/theme/tokens'
 import { CRAFT_RECIPES, findMaterialById, findConsumableById, findGearById } from '@/data/items'
 import type { CraftRecipe, RecipeCategory } from '@/types'
@@ -143,9 +143,9 @@ const CraftResultModal: React.FC<CraftResultProps> = ({ recipe, onClose }) => {
 // Main screen
 // ---------------------------------------------------------------------------
 
-const TABS: { key: RecipeCategory; label: string }[] = [
-  { key: 'forge', label: '⚔  FORGE' },
-  { key: 'brew',  label: '⚗  BREW' },
+const TABS: { key: RecipeCategory; label: string; icon: string }[] = [
+  { key: 'forge', label: 'FORGE', icon: 'sword-cross' },
+  { key: 'brew',  label: 'BREW',  icon: 'flask' },
 ]
 
 export default function SmithyScreen() {
@@ -209,7 +209,7 @@ export default function SmithyScreen() {
               activeOpacity={0.75}
             >
               <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>
-                {t.label}
+                <Icon name={t.icon} size={13} color={tab === t.key ? COLORS.systemGold : COLORS.textSecondary} />  {t.label}
               </Text>
             </TouchableOpacity>
           ))}

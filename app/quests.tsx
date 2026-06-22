@@ -5,19 +5,20 @@
 // permanent stat bonuses. Quest conditions are checked against player state.
 // =============================================================================
 
-import React, { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import {
   useStore, selectPlayer, selectCompletedQuestIds, selectClearedDungeonIds,
 } from '@/store/useStore'
 import {
-  Heading, Label, Spacer, SystemWindow, SectionHeader,
+  Heading, Label, Spacer, SystemWindow, SectionHeader, Icon,
 } from '@/components/UI'
+import { RewardPopup } from '@/components/RewardPopup'
 import {
-  COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS, elementAccent,
+  COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS,
 } from '@/theme/tokens'
-import { QUESTS, type Quest, type QuestCategory, type Element } from '@/types'
+import { QUESTS, type Quest, type QuestCategory, type Element, type DroppedReward, type Stats } from '@/types'
 
 const CATEGORY_LABELS: Record<QuestCategory, string> = {
   training: 'Training',
@@ -40,7 +41,6 @@ export default function QuestsScreen() {
   const { completeQuest } = useStore()
 
   const element = (player?.primary_element as Element | null) ?? null
-  const palette = elementAccent(element)
   const stats = player?.stats ?? { ATK: 0, SPD: 0, INT: 0, LCK: 0, DEF: 0, END: 0, PER: 0, CHA: 0 }
   const totalDistance = player?.total_distance_km ?? 0
 
@@ -85,9 +85,27 @@ export default function QuestsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [completedIds, clearedDungeonIds, totalDistance, stats])
 
+  // Rewards to show in the popup after claiming a quest.
+  const [claimedRewards, setClaimedRewards] = useState<DroppedReward[]>([])
+
   function handleClaimQuest(quest: Quest) {
     if (!isConditionMet(quest) || completedIds.includes(quest.id)) return
     completeQuest(quest.id, quest.statRewards)
+
+    // Show a reward popup so the player sees their stat gains — one entry per stat.
+    const rewards: DroppedReward[] = Object.entries(quest.statRewards).map(([stat, amount], i) => {
+      const statGains: Partial<Stats> = { [stat]: amount }
+      return {
+        id: `${quest.id}_${stat}_${i}`,
+        kind: 'stat_gain' as const,
+        rarity: 'rare' as const,
+        name: `+${amount} ${stat}`,
+        description: `${quest.title} reward`,
+        icon: '◆',
+        statGains,
+      }
+    })
+    if (rewards.length > 0) setClaimedRewards(rewards)
   }
 
   return (
@@ -142,6 +160,14 @@ export default function QuestsScreen() {
 
         <Spacer size="xl" />
       </ScrollView>
+
+      {claimedRewards.length > 0 && (
+        <RewardPopup
+          rewards={claimedRewards}
+          title="QUEST COMPLETE"
+          onClose={() => setClaimedRewards([])}
+        />
+      )}
     </SafeAreaView>
   )
 }
@@ -212,7 +238,7 @@ function QuestRow({
         {/* Condition progress */}
         {!done && (
           <Text style={[qStyles.condition, { color: claimable ? catColor : COLORS.textTertiary }]}>
-            {claimable ? '✓ ' : '○ '}{condStr}
+            <Icon name={claimable ? 'check-circle' : 'circle-outline'} size={12} color={claimable ? catColor : COLORS.textTertiary} /> {condStr}
           </Text>
         )}
 

@@ -9,7 +9,9 @@
     "web": "expo start --web",
     "lint": "eslint . --ext .ts,.tsx",
     "type-check": "tsc --noEmit",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
@@ -53,7 +55,8 @@
     "eslint-plugin-react-hooks": "^4.6.0",
     "patch-package": "^8.0.1",
     "supabase": "^1.178.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vitest": "^2.1.9"
   },
   "private": true
 }

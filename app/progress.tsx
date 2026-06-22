@@ -8,13 +8,13 @@
 // The matchup chart renders the full 10×10 grid so players can plan PvP loadouts.
 // =============================================================================
 
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { View, ScrollView, TouchableOpacity, StyleSheet } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { useStore, selectPlayer } from '@/store/useStore'
 import { Panel, Heading, Label, Spacer, Divider } from '@/components/UI'
 import {
-  COLORS, SPACING, elementAccent, rarityColor,
+  COLORS, SPACING, elementAccent,
 } from '@/theme/tokens'
 import {
   ELEMENTS, ELEMENT_LABELS, DISTANCE_TIERS, TYPE_MATCHUP_CHART,
@@ -223,11 +223,6 @@ export default function ProgressScreen() {
         {/* Matchup rows */}
         {ELEMENTS.map((defEl) => {
           const multiplier = TYPE_MATCHUP_CHART[focusEl as Element]?.[defEl] ?? 1
-          const effectivenessColor =
-            multiplier === 2 ? COLORS.success :
-            multiplier === 0.5 ? COLORS.error :
-            multiplier === 0 ? COLORS.textTertiary :
-            COLORS.textSecondary
           const label =
             multiplier === 2 ? 'Super Effective' :
             multiplier === 0.5 ? 'Not Very Effective' :
