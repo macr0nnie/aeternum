@@ -22,6 +22,7 @@
     "alpha": {
       "extends": "preview",
       "channel": "alpha",
+      "node": "24.16.0",
       "android": {
         "buildType": "apk"
       },
