@@ -51,6 +51,9 @@ Suites (run `npm test` — all must stay green):
   guards (no double-claim), gear equip/unequip, applyRunResult, reset, and
   `deepMerge` (the persist-upgrade guard that prevents red-screen crashes).
 - `tests/progression.test.ts` — archetype/pathway detection + computeRewards loot.
+- `tests/flows.test.ts` — **end-to-end gameplay sequences** through the store
+  (run→influence→claim, raid→weaken→capture siege, harvest→upgrade,
+  stamina-gated session + run refuel). Catches system-interaction regressions.
 - `tests/setup.ts` mocks AsyncStorage + supabase so the store runs in Node.
 
 **Testing practice (do this on every change):**
@@ -293,3 +296,24 @@ Health Connect — all of which have store-review and runtime implications.
 - Strip debug logging and dev-only screens from production builds.
 - Verify deep links / `expo-router` linking work from a cold start (the
   `useLinking` path), since that's a real launch route.
+
+
+
+### Performance Priorites
+- Performance Priorities
+  1.
+  Smooth 60fps
+
+  2.
+  Battery life
+
+  3.
+  Low memory
+
+  4.
+  Offline responsiveness
+
+  5.
+  Fast startup
+
+  Every feature should optimize for these.
