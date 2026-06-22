@@ -1,6 +1,8 @@
-const { getDefaultConfig } = require('expo/metro-config')
+const {
+  getSentryExpoConfig
+} = require("@sentry/react-native/metro");
 
-const config = getDefaultConfig(__dirname)
+const config = getSentryExpoConfig(__dirname)
 
 // React Native Skia requires wasm and worklet support in Metro
 config.resolver.assetExts.push('wasm')

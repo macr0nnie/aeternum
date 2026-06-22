@@ -25,7 +25,7 @@ import { installGlobalHandlers } from '@/lib/crashReporter'
 SplashScreen.preventAutoHideAsync()
 installGlobalHandlers()
 
-export default function RootLayout() {
+export default Sentry.wrap(function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({
     Rajdhani_700Bold: require('../assets/fonts/Rajdhani_700Bold.ttf'),
     ShareTechMono_400Regular: require('../assets/fonts/ShareTechMono_400Regular.ttf'),
@@ -217,7 +217,7 @@ export default function RootLayout() {
       </SafeAreaProvider>
     </GestureHandlerRootView>
   )
-}
+});
 
 // Inner shell: lives inside SafeAreaProvider so it can read the bottom inset and
 // pad the tab bar above the Android gesture/nav buttons (otherwise the bar
