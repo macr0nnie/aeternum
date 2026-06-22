@@ -20,8 +20,10 @@ import { HealthPermissionPrompt } from '@/components/HealthPermissionPrompt'
 import { CharacterSetup } from '@/components/CharacterSetup'
 import { elementAccent, COLORS } from '@/theme/tokens'
 import type { Element } from '@/types'
+import { installGlobalHandlers } from '@/lib/crashReporter'
 
 SplashScreen.preventAutoHideAsync()
+installGlobalHandlers()
 
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useFonts({

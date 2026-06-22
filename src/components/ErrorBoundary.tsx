@@ -8,6 +8,7 @@
 import React from 'react'
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native'
 import { COLORS, FONTS, FONT_SIZES, SPACING, LETTER_SPACING } from '@/theme/tokens'
+import { captureException } from '@/lib/crashReporter'
 
 interface Props {
   children: React.ReactNode
@@ -27,8 +28,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // Log so it still surfaces in dev tooling / crash reporters.
-    console.error(`[ErrorBoundary${this.props.label ? `:${this.props.label}` : ''}]`, error, info.componentStack)
+    // Forward to the crash reporter (logs now; Sentry later when configured).
+    captureException(error, {
+      boundary: this.props.label ?? 'unknown',
+      componentStack: info.componentStack,
+    })
   }
 
   reset = () => this.setState({ error: null })

@@ -45,11 +45,22 @@ Pure game-logic lives behind exported functions in `src/types/index.ts`
 (`vitest.config.ts` maps the `@/` alias). The tests run in Node — no React
 Native runtime — so they're fast and safe in CI.
 
-When you add or change a game-logic rule, **add/update a test** in
-`tests/gameLogic.test.ts` (or a sibling file) and keep `npm test` green. Keep
-new logic as pure exported functions so it stays testable without the RN
-runtime. Component/screen rendering is not yet covered — `tsc` + manual run
-remain the gate there.
+Suites (run `npm test` — all must stay green):
+- `tests/gameLogic.test.ts` — stamina/territory/siege/reward constants + helpers.
+- `tests/store.test.ts` — Zustand economy (stamina/influence/resources), progression
+  guards (no double-claim), gear equip/unequip, applyRunResult, reset, and
+  `deepMerge` (the persist-upgrade guard that prevents red-screen crashes).
+- `tests/progression.test.ts` — archetype/pathway detection + computeRewards loot.
+- `tests/setup.ts` mocks AsyncStorage + supabase so the store runs in Node.
+
+**Testing practice (do this on every change):**
+1. New/changed game rule → add or update a test, keep `npm test` green.
+2. Keep logic as **pure exported functions** so it's testable without the RN
+   runtime (UI just calls them). If a rule lives inside a component, extract it.
+3. Fixing a bug? Add a regression test that fails before the fix (e.g. the
+   `deepMerge` and double-claim tests came from real crashes).
+4. `tsc --noEmit` + `npm test` are the commit gate. Component/screen *rendering*
+   isn't unit-tested yet — verify those by running the app.
 
 ## Working norms
 - Match the surrounding file's style. Screens are functional components with a

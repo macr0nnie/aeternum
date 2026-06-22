@@ -16,7 +16,7 @@ import type { PublicPlayer } from '@/lib/supabase'
 // Recursively merge `source` over `target`, returning a new object. Used by the
 // persist `merge` so newly-added (possibly nested) fields always fall back to
 // their defaults instead of being `undefined` when older storage lacks them.
-function deepMerge<T>(target: T, source: Partial<T>): T {
+export function deepMerge<T>(target: T, source: Partial<T>): T {
   if (Array.isArray(target)) return (source ?? target) as T
   if (target && typeof target === 'object') {
     const out: any = { ...target }
