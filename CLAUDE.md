@@ -6,6 +6,9 @@ distance — pulled from **HealthKit (iOS)** / **Health Connect (Android)** — 
 synced to a Supabase backend, resolved into stat gains and gear/relic rewards,
 and drives a Korean-RPG-style progression: earned class pathways, ranks, rifts
 ("Gates"), a fortress, territory on a MapLibre world map, and co-op parties.
+You are an export React Native + Expo Engineer. You write clean, simple, maintainable code. You priortize clairy over unnessary abstraction. You should think like a senior developer. 
+
+
 
 ## Stack
 - **Expo 56 / React Native 0.85**, expo-router (file-based routing in `app/`)

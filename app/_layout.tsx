@@ -11,7 +11,7 @@ import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context'
-import { supabase, ensurePlayer, fetchPlayerProgress, isSupabaseConfigured } from '@/lib/supabase'
+import { supabase, ensurePlayer, fetchPlayerProgress, fetchPlayerResources, fetchFortress, isSupabaseConfigured } from '@/lib/supabase'
 import { useStore } from '@/store/useStore'
 import { usePersistenceSync } from '@/hooks/usePersistenceSync'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
@@ -20,7 +20,21 @@ import { HealthPermissionPrompt } from '@/components/HealthPermissionPrompt'
 import { CharacterSetup } from '@/components/CharacterSetup'
 import { elementAccent, COLORS } from '@/theme/tokens'
 import type { Element } from '@/types'
-import { installGlobalHandlers } from '@/lib/crashReporter'
+import { installGlobalHandlers, setCrashReporter } from '@/lib/crashReporter'
+import * as Sentry from '@sentry/react-native'
+
+// Initialise Sentry once at module load. DSN comes from an env var so it's not
+// hardcoded; with no DSN, Sentry stays inert and we fall back to local logging.
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN
+Sentry.init({
+  dsn: SENTRY_DSN,
+  enabled: !!SENTRY_DSN && !__DEV__,   // don't spam Sentry from local dev
+  tracesSampleRate: 0.2,
+})
+// Route our app-wide crash reporter through Sentry.
+setCrashReporter({
+  capture: (e, ctx) => Sentry.captureException(e, ctx ? { extra: ctx } : undefined),
+})
 
 SplashScreen.preventAutoHideAsync()
 installGlobalHandlers()
@@ -38,6 +52,7 @@ export default Sentry.wrap(function RootLayout() {
     characterSetupDone, setCharacterSetupDone,
     setSyncState, setSyncError, applyRunResult,
     healthPermissionAsked, setHealthPermissionAsked,
+    setResources, setFortress,
   } = useStore()
 
   // Keep Supabase in sync with every local state change
@@ -78,6 +93,32 @@ export default Sentry.wrap(function RootLayout() {
         if (progress.completed_quest_ids) setCompletedQuestIds(progress.completed_quest_ids)
         if (progress.cleared_dungeon_ids) setClearedDungeonIds(progress.cleared_dungeon_ids)
         if (progress.traits) setTraits(progress.traits as any)
+      }
+
+      // Hydrate resources + fortress on boot (previously only loaded when the
+      // Fortress tab opened, so influence/resources looked missing until then).
+      const [res, fort] = await Promise.all([
+        fetchPlayerResources(userId).catch(() => ({ data: null })),
+        fetchFortress(userId).catch(() => ({ data: null })),
+      ])
+      if (!mounted) return
+      if (res.data) {
+        const r = res.data as any
+        setResources({
+          influence: r.influence ?? 0, iron: r.iron ?? 0, crystal: r.crystal ?? 0,
+          mana: r.mana_res ?? 0, herbs: r.herbs ?? 0, gold: r.gold_res ?? 0,
+        })
+      }
+      if (fort.data) {
+        const f = fort.data as any
+        setFortress({
+          level: f.level ?? 1,
+          barracks_level: f.barracks_level ?? 0,
+          walls_level: f.walls_level ?? 0,
+          forge_level: f.forge_level ?? 0,
+          element: f.element ?? null,
+          defense_slots: f.defense_slots ?? [],
+        })
       }
     }
   }
