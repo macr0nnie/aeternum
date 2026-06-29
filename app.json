@@ -53,6 +53,7 @@
         }
       ],
       "./plugins/withHealthConnectPermissionDelegate",
+      "./plugins/withHealthConnectLaunchMode",
       [
         "expo-build-properties",
         {
