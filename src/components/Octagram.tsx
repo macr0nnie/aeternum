@@ -1,16 +1,3 @@
-// =============================================================================
-// Aeternum — Octagram (8-stat polygon renderer)
-// =============================================================================
-// Hand-built in React Native Skia. No charting library is used — this gives
-// us full control over the angular aesthetic and element accent integration.
-//
-// The octagram renders two concentric polygons:
-//   outer — the player's current stat values (normalised 0–1)
-//   inner — a faint baseline grid showing max extent
-//
-// All 8 stats are positioned at 45° intervals starting from the top (ATK).
-// Stat ordering is clockwise: ATK → SPD → INT → LCK → DEF → END → PER → CHA
-// =============================================================================
 
 import React, { useMemo } from 'react'
 import { Canvas, Path, Skia, Circle, Text as SkiaText, useFont } from '@shopify/react-native-skia'
@@ -18,9 +5,6 @@ import { View } from 'react-native'
 import { COLORS, FONT_SIZES, elementAccent } from '@/theme/tokens'
 import { STAT_KEYS, type Stats, type StatKey, type Element } from '@/types'
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 interface OctagramProps {
   stats: Stats
@@ -29,10 +13,6 @@ interface OctagramProps {
   size?: number
   showLabels?: boolean
 }
-
-// ---------------------------------------------------------------------------
-// Geometry helpers
-// ---------------------------------------------------------------------------
 
 function polarToCartesian(
   cx: number,

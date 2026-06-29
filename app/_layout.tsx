@@ -186,6 +186,20 @@ export default Sentry.wrap(function RootLayout() {
     let active = true
 
     async function autoSync() {
+      // Don't auto-sync until health is actually connected. A fresh user hasn't
+      // granted permission yet (the HealthPermissionPrompt is still pending), so
+      // firing syncRun here would throw HEALTH_CONNECT_UNAVAILABLE and surface a
+      // bogus "sync failed" error before they've even been asked. checkHealth()
+      // shows no dialog, so it's safe from this background effect.
+      const { checkHealth } = await import('@/lib/health')
+      if (!active) return
+      if (!(await checkHealth())) {
+        if (!active) return
+        setSyncState('idle')
+        return
+      }
+      if (!active) return
+
       setSyncState('reading')
       setSyncError(null)
       try {
