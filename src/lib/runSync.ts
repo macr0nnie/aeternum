@@ -58,7 +58,7 @@ export async function syncRun(playerId: string): Promise<SyncRunOutcome> {
   const session = await readLastRun()
   if (!session) {
     throw new SyncError(
-      'No completed run session found in the last 48 hours. Complete a run first.',
+      'No workout found in the last 48 hours. Record your run as a workout in your health app (e.g. Samsung Health or Fitbit), then sync.',
       'NO_SESSION_FOUND',
     )
   }
