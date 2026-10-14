@@ -17,10 +17,15 @@
         "android.permission.health.READ_STEPS",
         "android.permission.health.READ_DISTANCE",
         "android.permission.health.READ_HEART_RATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION"
+      ],
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
       ]
     },
     "ios": {
@@ -30,6 +35,7 @@
       }
     },
     "plugins": [
+      "./plugins/withPrivacyPolicyActivity",
       "expo-router",
       "expo-font",
       [
@@ -87,7 +93,8 @@
       },
       "eas": {
         "projectId": "e4c37cf5-6b5c-44a5-a7ed-0e29ac310115"
-      }
+      },
+      "privacyPolicyUrl": "https://github.com/macr0nnie/aeternum/blob/main/docs/privacy-policy.md"
     },
     "owner": "macronnie",
     "runtimeVersion": {

@@ -3,14 +3,17 @@
 // =============================================================================
 import { useState } from 'react'
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform, Switch,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Alert, Platform, Switch, Linking,
 } from 'react-native'
 import { useStore, selectPlayer, selectHealthPermissionAsked } from '@/store/useStore'
 import { SectionHeader, SystemWindow } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING } from '@/theme/tokens'
-import { supabase } from '@/lib/supabase'
+import Constants from 'expo-constants'
+import { supabase, deleteAccount } from '@/lib/supabase'
 import { TRAIT_KEYS, PLAYER_SKILLS } from '@/types'
 import type { TraitKey } from '@/types'
+
+const PRIVACY_POLICY_URL: string = Constants.expoConfig?.extra?.privacyPolicyUrl ?? ''
 
 // ---------------------------------------------------------------------------
 // Setting row
@@ -68,18 +71,6 @@ export default function SettingsScreen() {
   } = useStore()
 
   const [signingOut, setSigningOut] = useState(false)
-
-  // Hidden debug gate: tap the Version row 7× to reveal debug tools in release.
-  const [versionTaps, setVersionTaps] = useState(0)
-  const [debugUnlocked, setDebugUnlocked] = useState(false)
-  function handleVersionTap() {
-    const next = versionTaps + 1
-    setVersionTaps(next)
-    if (next >= 7 && !debugUnlocked) {
-      setDebugUnlocked(true)
-      Alert.alert('Debug unlocked', 'Developer tools are now visible below.')
-    }
-  }
 
   // ── Debug helpers ──────────────────────────────────────────────────────────
 
@@ -147,7 +138,7 @@ export default function SettingsScreen() {
   async function handleSignOut() {
     Alert.alert(
       'Sign Out',
-      'Your progress is saved to the server. You can sign back in anytime.',
+      'You are playing as a guest. Signing out permanently loses access to this hero — there is no way to sign back in.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -158,6 +149,32 @@ export default function SettingsScreen() {
             await supabase.auth.signOut()
             reset()
             setSigningOut(false)
+          },
+        },
+      ],
+    )
+  }
+
+  function handleDeleteAccount() {
+    Alert.alert(
+      'Delete Account',
+      'This permanently deletes your hero, runs, territory and all game data from our servers. It cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setSigningOut(true)
+            try {
+              await deleteAccount()
+              await supabase.auth.signOut()
+              reset()
+            } catch {
+              Alert.alert('Delete failed', 'Could not reach the server. Check your connection and try again.')
+            } finally {
+              setSigningOut(false)
+            }
           },
         },
       ],
@@ -204,8 +221,14 @@ export default function SettingsScreen() {
           />
           <SettingRow
             label="Sign Out"
-            sub="Progress is saved to the server"
+            sub="Guest accounts can't sign back in"
             {...(!signingOut && { onPress: handleSignOut })}
+            destructive
+          />
+          <SettingRow
+            label="Delete Account"
+            sub="Permanently delete your hero and all game data"
+            {...(!signingOut && { onPress: handleDeleteAccount })}
             destructive
           />
         </View>
@@ -227,7 +250,8 @@ export default function SettingsScreen() {
         {/* App info */}
         <SectionHeader title="APP" />
         <View style={styles.section}>
-          <SettingRow label="Version" value="1.0.0" onPress={handleVersionTap} />
+          <SettingRow label="Version" value={Constants.expoConfig?.version ?? '—'} />
+          <SettingRow label="Privacy Policy" onPress={() => Linking.openURL(PRIVACY_POLICY_URL)} />
           <SettingRow
             label="Reset Local Cache"
             sub="Clears quest/dungeon/gear cache. Server data is safe."
@@ -236,10 +260,8 @@ export default function SettingsScreen() {
           />
         </View>
 
-        {/* Debug tools — always available in DEV; in release builds they stay
-            hidden until unlocked by tapping the Version row 7× (so testers can't
-            stumble into cheats, but you still have access). */}
-        {(__DEV__ || debugUnlocked) && (
+        {/* Debug tools — dev builds only; they grant free runs and resources. */}
+        {__DEV__ && (
           <>
             <SectionHeader title="DEBUG TOOLS" />
             <View style={styles.section}>
