@@ -18,6 +18,7 @@ import {
   requestPermission,
   getGrantedPermissions,
   readRecords,
+  aggregateRecord,
   openHealthConnectSettings,
   getSdkStatus,
   SdkAvailabilityStatus,
@@ -57,6 +58,14 @@ const REQUIRED_PERMISSIONS = [
   { accessType: 'read' as const, recordType: 'HeartRate' as const },
 ]
 
+// Usable if we can see the workout, its distance and steps (resolve-run
+// requires all three). Heart rate is nice-to-have. Shared by connect and check so "Connected" in the UI always
+// means Sync will actually run.
+function hasUsableGrant(granted: Array<{ recordType: string }>): boolean {
+  const types = granted.map(g => g.recordType)
+  return ['ExerciseSession', 'Distance', 'Steps'].every(t => types.includes(t))
+}
+
 // ---------------------------------------------------------------------------
 // Check existing grants (safe to call from any context — no dialog)
 // ---------------------------------------------------------------------------
@@ -67,10 +76,7 @@ export async function checkHealthConnect(): Promise<boolean> {
     if (!isAvailable) return false
 
     const granted = await getGrantedPermissions()
-    const requiredTypes = REQUIRED_PERMISSIONS.map(p => p.recordType)
-    return requiredTypes.every(type =>
-      granted.some((g: { recordType: string }) => g.recordType === type),
-    )
+    return hasUsableGrant(granted)
   } catch {
     return false
   }
@@ -94,11 +100,7 @@ export async function connectHealthConnect(): Promise<HealthConnectResult> {
     if (!ok) return 'unavailable'
 
     const granted = await requestPermission(REQUIRED_PERMISSIONS)
-    // Usable if we got the core movement data — steps OR distance. Heart rate /
-    // exercise-session are nice-to-have, so don't fail the whole flow on them.
-    const types = granted.map((g: { recordType: string }) => g.recordType)
-    const usable = types.includes('Steps') || types.includes('Distance')
-    return usable ? 'granted' : 'denied'
+    return hasUsableGrant(granted) ? 'granted' : 'denied'
   } catch {
     return 'unavailable'
   }
@@ -116,43 +118,6 @@ export async function initHealthConnect(): Promise<boolean> {
 // We always read the most recent session — the player explicitly taps
 // "Sync Run" after their run, so the last session is the intended one.
 
-// Fallback when there's no recorded ExerciseSession: aggregate raw Steps +
-// Distance over the last 24h. Lets people who just walk (no started workout)
-// still sync. Returns null only if there's truly no meaningful activity.
-async function readDailyActivity(): Promise<HealthConnectSession | null> {
-  try {
-    const start = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const end = new Date().toISOString()
-
-    const [stepsResult, distanceResult] = await Promise.all([
-      readRecords('Steps', { timeRangeFilter: { operator: 'between', startTime: start, endTime: end } }),
-      readRecords('Distance', { timeRangeFilter: { operator: 'between', startTime: start, endTime: end } }),
-    ])
-
-    const steps = (stepsResult.records as Array<{ count: number }>)
-      .reduce((sum, r) => sum + (r.count ?? 0), 0)
-    const distanceMeters = (distanceResult.records as Array<{ distance?: { inMeters?: number } }>)
-      .reduce((sum, r) => sum + (r.distance?.inMeters ?? 0), 0)
-
-    // Require some real movement (steps OR ≥100m) to count as a sync.
-    if (steps < 100 && distanceMeters < 100) return null
-
-    // Estimate distance from steps if Health Connect has steps but no distance
-    // record (~0.762 m per step average stride).
-    const effectiveDistance = distanceMeters >= 100 ? distanceMeters : steps * 0.762
-
-    return {
-      startTime: start,
-      endTime: end,
-      distanceMeters: effectiveDistance,
-      steps,
-      avgHeartRateBpm: null,
-    }
-  } catch {
-    return null
-  }
-}
-
 export async function readLastRun(): Promise<HealthConnectSession | null> {
   try {
     // Look back 48 hours to catch runs done the day before syncing
@@ -163,38 +128,28 @@ export async function readLastRun(): Promise<HealthConnectSession | null> {
       timeRangeFilter: { operator: 'between', startTime, endTime },
     })
 
-    const sessions = sessionResult.records
-    // No recorded workout? Fall back to raw steps/distance from the last 24h so
-    // walkers (who don't start an "exercise session") can still sync.
-    if (!sessions || sessions.length === 0) {
-      return readDailyActivity()
-    }
-
-    // Most recent session is last in the array
+    // Records aren't guaranteed to be ordered — pick the latest by end time.
+    const sessions = [...(sessionResult.records ?? [])].sort(
+      (a, b) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime(),
+    )
     const session = sessions[sessions.length - 1]
-    if (!session) return readDailyActivity()
+    if (!session) return null
 
     const sessionStart = session.startTime as string
     const sessionEnd = session.endTime as string
+    const window = { operator: 'between' as const, startTime: sessionStart, endTime: sessionEnd }
 
-    // Aggregate steps, distance, and heart rate within this session window
-    const [stepsResult, distanceResult, heartRateResult] = await Promise.all([
-      readRecords('Steps', {
-        timeRangeFilter: { operator: 'between', startTime: sessionStart, endTime: sessionEnd },
-      }),
-      readRecords('Distance', {
-        timeRangeFilter: { operator: 'between', startTime: sessionStart, endTime: sessionEnd },
-      }),
-      readRecords('HeartRate', {
-        timeRangeFilter: { operator: 'between', startTime: sessionStart, endTime: sessionEnd },
-      }),
+    // aggregateRecord de-duplicates overlapping sources (phone + watch + Samsung
+    // Health all writing the same run); summing raw records double-counts.
+    // Heart rate is an optional grant, so a failure there isn't fatal.
+    const [steps, distance, heartRateResult] = await Promise.all([
+      aggregateRecord({ recordType: 'Steps', timeRangeFilter: window }),
+      aggregateRecord({ recordType: 'Distance', timeRangeFilter: window }),
+      readRecords('HeartRate', { timeRangeFilter: window }).catch(() => ({ records: [] })),
     ])
 
-    const totalSteps = (stepsResult.records as Array<{ count: number }>)
-      .reduce((sum, r) => sum + (r.count ?? 0), 0)
-
-    const totalDistanceMeters = (distanceResult.records as Array<{ distance?: { inMeters?: number } }>)
-      .reduce((sum, r) => sum + (r.distance?.inMeters ?? 0), 0)
+    const totalSteps = steps?.COUNT_TOTAL ?? 0
+    const totalDistanceMeters = distance?.DISTANCE?.inMeters ?? 0
 
     const allHeartSamples = (heartRateResult.records as Array<{ samples?: Array<{ beatsPerMinute?: number }> }>)
       .flatMap((r) => r.samples ?? [])

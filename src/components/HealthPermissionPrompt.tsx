@@ -83,6 +83,7 @@ export function HealthPermissionPrompt({ visible, onDone, onSkip }: Props) {
               sync your movement into stats, loot and stamina.
             </Text>
             <View style={styles.dataList}>
+              <View style={styles.dataRow}><Icon name="run" size={16} color={COLORS.system} /><Text style={styles.dataTxt}>Workouts</Text></View>
               <View style={styles.dataRow}><Icon name="shoe-print" size={16} color={COLORS.system} /><Text style={styles.dataTxt}>Steps</Text></View>
               <View style={styles.dataRow}><Icon name="map-marker-distance" size={16} color={COLORS.system} /><Text style={styles.dataTxt}>Distance</Text></View>
               <View style={styles.dataRow}><Icon name="heart-pulse" size={16} color={COLORS.system} /><Text style={styles.dataTxt}>Heart rate</Text></View>
@@ -132,7 +133,7 @@ export function HealthPermissionPrompt({ visible, onDone, onSkip }: Props) {
           <>
             <Text style={styles.body}>
               Almost there — Aeternum still needs access to your{' '}
-              <Text style={styles.bold}>Steps</Text> and <Text style={styles.bold}>Distance</Text>.
+              <Text style={styles.bold}>Exercise</Text>, <Text style={styles.bold}>Steps</Text> and <Text style={styles.bold}>Distance</Text>.
               Open {platformName} and turn those toggles <Text style={styles.bold}>on</Text>.
             </Text>
             <PrimaryBtn label={`OPEN ${platformName.toUpperCase()}`} onPress={handleOpenHealthUI} />
