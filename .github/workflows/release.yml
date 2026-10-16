@@ -1,0 +1,60 @@
+# Every push to a release/* branch: test, build the Android production bundle
+# on EAS, and publish it as a GitHub Release.
+# Required repo secret: EXPO_TOKEN.
+name: Release
+
+on:
+  push:
+    branches: ['release/**']
+
+# A newer push to the same release branch cancels the older run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      - name: Build on EAS
+        id: build
+        run: |
+          eas build --platform android --profile production --non-interactive --wait --json > build.json
+          echo "url=$(jq -r '.[0].artifacts.buildUrl' build.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r '.[0].appVersion + "-" + .[0].appBuildVersion' build.json)" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.build.outputs.version }}
+          BUILD_URL: ${{ steps.build.outputs.url }}
+        run: |
+          curl -fsSL -o "aeternum-$TAG.aab" "$BUILD_URL"
+          gh release create "$TAG" "aeternum-$TAG.aab" \
+            --target "$GITHUB_SHA" \
+            --title "Aeternum $TAG" \
+            --notes "Android production build from \`${GITHUB_REF_NAME}\` (${GITHUB_SHA::7})."
