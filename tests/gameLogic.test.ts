@@ -12,6 +12,7 @@ import {
   unlockedResourceTypes, canHarvestType, levelRequiredFor, territoryUpgradeCost,
   territoryMaxHealth, territoryDefense, territoryRepairCost, TERRITORY_MAX_LEVEL,
   RIFT_INFLUENCE_REWARD, gearStatBonuses,
+  rankLabel,
 } from '@/types'
 
 describe('stamina', () => {
@@ -102,5 +103,12 @@ describe('gearStatBonuses (regression: previously crashed on undefined)', () => 
 
   it('returns the bonuses when present', () => {
     expect(gearStatBonuses({ statBonuses: { ATK: 5 } })).toEqual({ ATK: 5 })
+  })
+})
+
+describe('rankLabel', () => {
+  it('shows Grandmaster for the stored Sovereign rank and leaves letters alone', () => {
+    expect(rankLabel('Sovereign')).toBe('Grandmaster')
+    expect(rankLabel('S')).toBe('S')
   })
 })

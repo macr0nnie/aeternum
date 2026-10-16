@@ -69,7 +69,7 @@ export function buildLocalGuestPlayer(): Player {
     primary_element: null,
     secondary_element: null,
     stats: { ATK: 0, SPD: 0, INT: 0, LCK: 0, DEF: 0, END: 0, PER: 0, CHA: 0 },
-    title: 'Unawakened',  // matches DB default from migration 002
+    title: 'Unkindled',  // matches DB default from migration 010
     title_chronicle: [],
     created_at: now,
     updated_at: now,

@@ -18,7 +18,7 @@ import {
 } from '@/theme/tokens'
 import {
   ELEMENTS, ELEMENT_LABELS, DISTANCE_TIERS, TYPE_MATCHUP_CHART,
-  STAT_KEYS, STAT_LABELS, STAT_SOURCES, RANK_DISTANCE_THRESHOLDS, RANKS,
+  STAT_KEYS, STAT_LABELS, STAT_SOURCES, RANK_DISTANCE_THRESHOLDS, RANKS, rankLabel,
   type Element, type Rank,
 } from '@/types'
 
@@ -63,7 +63,7 @@ export default function ProgressScreen() {
         <Panel element={element} elevated>
           <View style={styles.row}>
             <Label variant="tertiary">Current Rank</Label>
-            <Label variant="primary" size="md">{player.rank}</Label>
+            <Label variant="primary" size="md">{rankLabel(player.rank)}</Label>
           </View>
           {nextRank && (
             <>
@@ -80,7 +80,7 @@ export default function ProgressScreen() {
               <View style={styles.row}>
                 <Label variant="tertiary" size="xs">{`${player.total_distance_km.toFixed(1)} km`}</Label>
                 <Label variant="tertiary" size="xs">
-                  {`${nextThreshold ?? ''} km → Rank ${nextRank ?? ''}`}
+                  {`${nextThreshold ?? ''} km → Rank ${nextRank ? rankLabel(nextRank) : ''}`}
                 </Label>
               </View>
             </>
