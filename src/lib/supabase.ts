@@ -520,3 +520,12 @@ export async function resolveCoOpGate(gateId: string, participantIds: string[]) 
   if (error) throw new Error(error.message)
   return data as import('@/types').CoOpGateResponse
 }
+
+// ---------------------------------------------------------------------------
+// Account deletion (Google Play requires it in-app)
+// ---------------------------------------------------------------------------
+
+export async function deleteAccount() {
+  const { error } = await supabase.functions.invoke('delete-account', { body: {} })
+  if (error) throw new Error(error.message)
+}
