@@ -110,6 +110,9 @@ export type Rank = 'E' | 'D' | 'C' | 'B' | 'A' | 'S' | 'Sovereign'
 
 export const RANKS: Rank[] = ['E', 'D', 'C', 'B', 'A', 'S', 'Sovereign']
 
+/** Display name for a rank. 'Sovereign' stays the stored id so saved data keeps working. */
+export const rankLabel = (rank: string): string => (rank === 'Sovereign' ? 'Grandmaster' : rank)
+
 export const RANK_DISTANCE_THRESHOLDS: Record<Rank, number> = {
   E: 0,
   D: 50,
@@ -488,7 +491,7 @@ export const QUESTS: Quest[] = [
     category: 'training',
     condition: { type: 'auto' },
     statRewards: { END: 1, CHA: 1 },
-    flavor: 'Every sovereign began with a single step.',
+    flavor: 'Every legend began with a single step.',
   },
   {
     id: 'q_morning_run',
@@ -497,7 +500,7 @@ export const QUESTS: Quest[] = [
     category: 'training',
     condition: { type: 'distance', km: 2 },
     statRewards: { END: 1, SPD: 1 },
-    flavor: 'The body awakens when the sun rises.',
+    flavor: 'The embers stir when the sun rises.',
   },
   {
     id: 'q_long_haul',
@@ -853,7 +856,7 @@ export const DUNGEON_ENTRIES: DungeonEntry[] = [
     name: "Grandmaster's Rift",
     rank: 'S',
     dungeonType: 'general',
-    description: 'The apex dungeon. Only the sovereign-ranked survive.',
+    description: 'The apex dungeon. Only Grandmasters survive.',
     statRequirements: { ATK: 40, DEF: 35, END: 35, SPD: 30, INT: 30, LCK: 20, CHA: 20, PER: 20 },
     rewardRarity: 'legendary',
     statRewards: { ATK: 10, DEF: 8, END: 8, SPD: 6, INT: 6, LCK: 4, CHA: 4, PER: 4 },

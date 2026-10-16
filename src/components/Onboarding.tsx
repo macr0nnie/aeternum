@@ -93,7 +93,7 @@ export const Onboarding: React.FC<OnboardingProps> = ({ ready, bootError, onRetr
           <Text style={styles.title}>AETERNUM</Text>
           <View style={styles.accentLine} />
           <Spacer size="sm" />
-          <Label variant="tertiary" size="sm">Forge your legend</Label>
+          <Label variant="tertiary" size="sm">Every step rekindles the world</Label>
         </View>
 
         <View style={styles.action}>

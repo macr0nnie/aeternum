@@ -68,8 +68,8 @@ export default function QuestsScreen() {
       case 'auto': return 'Auto-complete'
       case 'distance': return `${totalDistance.toFixed(1)} / ${condition.km} km`
       case 'stat': return `${condition.statKey}: ${stats[condition.statKey!] ?? 0} / ${condition.statMin}`
-      case 'dungeon_clear': return 'Clear specific gate'
-      case 'dungeon_count': return `${clearedDungeonIds.length} / ${condition.count} gates cleared`
+      case 'dungeon_clear': return 'Clear specific rift'
+      case 'dungeon_count': return `${clearedDungeonIds.length} / ${condition.count} rifts cleared`
       default: return ''
     }
   }

@@ -218,7 +218,7 @@ export default function SmithyScreen() {
         {/* Material summary */}
         <SectionHeader title="YOUR MATERIALS" />
         {Object.keys(inventory.materials).length === 0 ? (
-          <Text style={styles.emptyNote}>No materials yet. Clear gates to earn cores and fragments.</Text>
+          <Text style={styles.emptyNote}>No materials yet. Clear rifts to earn cores and fragments.</Text>
         ) : (
           <CornerPanel>
             <View style={styles.matGrid}>

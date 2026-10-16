@@ -267,7 +267,7 @@ export default function InventoryScreen() {
         {/* Bag — Gear */}
         <SectionHeader title="BAG — GEAR" />
         {inventory.gear.length === 0 ? (
-          <Text style={styles.emptyBag}>No gear in bag. Clear gates to earn drops.</Text>
+          <Text style={styles.emptyBag}>No gear in bag. Clear rifts to earn drops.</Text>
         ) : (
           <CornerPanel>
             {inventory.gear.map((g, i) => (
@@ -337,7 +337,7 @@ export default function InventoryScreen() {
         )}
 
         {materialEntries.length === 0 && consumableEntries.length === 0 && (
-          <Text style={styles.emptyBag}>Clear gates to earn materials and consumables.</Text>
+          <Text style={styles.emptyBag}>Clear rifts to earn materials and consumables.</Text>
         )}
 
         <View style={{ height: SPACING.xl }} />

@@ -18,7 +18,7 @@ import type { Element } from '@/types'
 const TABS: { key: LeaderboardCategory; label: string; unit: (v: number, row: any) => string }[] = [
   { key: 'distance',   label: 'DISTANCE',   unit: (v) => `${(v as number).toFixed(1)} km` },
   { key: 'stat_power', label: 'POWER',      unit: (_, row) => `PWR ${row.total_stat_power}` },
-  { key: 'gates',      label: 'GATES',      unit: (_, row) => `${(row.cleared_dungeon_ids as string[] | null)?.length ?? 0} cleared` },
+  { key: 'gates',      label: 'RIFTS',      unit: (_, row) => `${(row.cleared_dungeon_ids as string[] | null)?.length ?? 0} cleared` },
 ]
 
 // ---------------------------------------------------------------------------

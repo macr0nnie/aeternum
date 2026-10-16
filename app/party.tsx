@@ -15,7 +15,7 @@ import {
   fetchPartyMembers, fetchPartyInvites,
   type PublicPlayer,
 } from '@/lib/supabase'
-import type { Element } from '@/types'
+import { rankLabel, type Element } from '@/types'
 import type { PartyInvite } from '@/store/useStore'
 
 const MemberCard: React.FC<{ member: PublicPlayer }> = ({ member }) => {
@@ -27,7 +27,7 @@ const MemberCard: React.FC<{ member: PublicPlayer }> = ({ member }) => {
         <View style={cardStyles.info}>
           <Text style={cardStyles.name}>{member.username}</Text>
           <Text style={cardStyles.sub}>
-            {`Rank ${member.rank ?? 'F'}`}{' · '}{member.total_distance_km.toFixed(1)} km{' · '}PWR {member.total_stat_power}
+            {`Rank ${rankLabel(member.rank ?? 'F')}`}{' · '}{member.total_distance_km.toFixed(1)} km{' · '}PWR {member.total_stat_power}
           </Text>
         </View>
       </View>
