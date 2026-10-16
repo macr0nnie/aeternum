@@ -50,7 +50,7 @@ Deno.serve(async (req: Request) => {
     db.from('territory_attacks').delete().or(`attacker_id.eq.${id},defender_id.eq.${id}`),
     db.from('resource_nodes').update({ last_harvested_by: null }).eq('last_harvested_by', id),
   ])
-  const cleanupError = cleanup.find((r: { error: unknown }) => r.error)?.error
+  const cleanupError = cleanup.find((r: { error: { message: string } | null }) => r.error)?.error
   if (cleanupError) return json({ error: cleanupError.message }, 500)
 
   const { error } = await db.auth.admin.deleteUser(id)
