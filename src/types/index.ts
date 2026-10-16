@@ -354,6 +354,8 @@ export interface SyncRunResponse {
   rewards: Reward[]
   stat_gains: Partial<Stats>
   flag_reason?: string
+  // Server-owned progression after a validated run.
+  player?: { rank: Rank; total_distance_km: number; title: string }
 }
 
 // A summary of the most recently synced run — the raw activity metrics read

@@ -141,6 +141,29 @@ describe('applyRunResult', () => {
     expect(s().getStamina()).toBe(30)
   })
 
+  it('adopts server progression, adds loot, and skips stamina for flagged runs', () => {
+    s().setPlayer(makePlayer())
+    s().spendStamina(40) // 10 left
+    s().applyRunResult({
+      run_id: 'r2', validated: true, stat_gains: { LCK: 1 },
+      rewards: [
+        { id: 'mat_wolf_fang', name: 'Wolf Fang', rarity: 'common', type: 'material' },
+        { id: 'con_minor_elixir', name: 'Minor Elixir', rarity: 'common', type: 'consumable' },
+      ],
+      player: { rank: 'D', total_distance_km: 52, title: 'Flamecaller' },
+    })
+    expect(s().player?.rank).toBe('D')
+    expect(s().player?.total_distance_km).toBe(52)
+    expect(s().inventory.materials['mat_wolf_fang']).toBe(1)
+    expect(s().inventory.consumables['con_minor_elixir']).toBe(1)
+
+    s().applyRunResult(
+      { run_id: 'r3', validated: false, rewards: [], stat_gains: {} },
+      { distance_km: 5, duration_seconds: 60, steps: 10, avg_heart_rate: null, ended_at: '' },
+    )
+    expect(s().getStamina()).toBe(10) // flagged run: no refill
+  })
+
   it('no-ops safely when there is no player', () => {
     expect(() => s().applyRunResult(
       { run_id: 'r', validated: true, rewards: [], stat_gains: { ATK: 1 } },

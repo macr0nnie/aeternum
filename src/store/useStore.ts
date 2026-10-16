@@ -236,16 +236,27 @@ export const useStore = create<AeternumState>()(
       setLatestRunResult: (result) => set({ latestRunResult: result }),
 
       applyRunResult: (result, summary) => {
-        const { player, stamina, staminaUpdatedAt } = get()
+        const { player, stamina, staminaUpdatedAt, inventory } = get()
         if (!player) return
-        const updatedPlayer = applyStatRewards(player, result.stat_gains as Partial<import('@/types').Stats>)
-        // Running refills map stamina (the fitness → map link).
+        const updatedPlayer = {
+          ...applyStatRewards(player, result.stat_gains as Partial<import('@/types').Stats>),
+          ...result.player,
+        }
+        // Running refills map stamina (the fitness → map link) — validated runs only.
         const max = staminaMax(updatedPlayer)
         const regen = Math.floor((Date.now() - staminaUpdatedAt) / STAMINA_REGEN_MS)
         const current = Math.min(max, stamina + Math.max(0, regen))
-        const refill = summary ? Math.round(summary.distance_km * STAMINA_PER_KM) : 0
+        const refill = summary && result.validated ? Math.round(summary.distance_km * STAMINA_PER_KM) : 0
+        // Loot ids are catalog ids; tally them into the inventory.
+        const materials = { ...inventory.materials }
+        const consumables = { ...inventory.consumables }
+        for (const r of Array.isArray(result.rewards) ? result.rewards : []) {
+          if (r.type === 'material') materials[r.id] = (materials[r.id] ?? 0) + 1
+          if (r.type === 'consumable') consumables[r.id] = (consumables[r.id] ?? 0) + 1
+        }
         set({
           player: updatedPlayer,
+          inventory: { ...inventory, materials, consumables },
           latestRunResult: result,
           lastRunSummary: summary ?? null,
           stamina: Math.min(max, current + refill),

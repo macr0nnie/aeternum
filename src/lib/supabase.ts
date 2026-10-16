@@ -448,10 +448,10 @@ export async function savePlayerProgress(
     .eq('id', playerId)
 }
 
-export async function savePlayerStats(playerId: string, stats: import('@/types').Stats, rank?: string) {
+export async function savePlayerStats(playerId: string, stats: import('@/types').Stats) {
   return supabase
     .from('players')
-    .update({ stats, ...(rank ? { rank } : {}), updated_at: new Date().toISOString() })
+    .update({ stats, updated_at: new Date().toISOString() })
     .eq('id', playerId)
 }
 
