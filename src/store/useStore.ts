@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import type { Player, RunSession, SyncRunResponse, RunSummary, GearItem, Relic, GearLoadout, PlayerInventory, CoOpGateResponse, Territory, ResourceNode, PlayerResources, Fortress, FortressBuildingKey, FortressCrop, ResourceType, PlayerTraits, TraitKey } from '@/types'
-import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS, EMPTY_TRAITS, maxStamina, STAMINA_PER_KM } from '@/types'
+import { EMPTY_INVENTORY, EMPTY_LOADOUT, EMPTY_RESOURCES, EMPTY_FORTRESS, FORTRESS_BUILDINGS, buildingMaterialCost, buildingShortfall, EMPTY_TRAITS, maxStamina, STAMINA_PER_KM } from '@/types'
 
 // Passive stamina regen: +1 point every 6 minutes.
 const STAMINA_REGEN_MS = 6 * 60 * 1000
@@ -155,7 +155,8 @@ interface AeternumState {
   addResource: (type: ResourceType, amount: number) => void
   spendResources: (cost: Partial<PlayerResources>) => boolean
   setFortress: (f: Fortress) => void
-  upgradeFortressBuilding: (key: FortressBuildingKey) => void
+  // Spends the next level's resources + run-loot materials and bumps the building. False if unaffordable or maxed.
+  upgradeFortressBuilding: (key: FortressBuildingKey) => boolean
   setCrops: (crops: FortressCrop[]) => void
   unlockSkill: (skillId: string) => void
   setMyTerritories: (t: Territory[]) => void
@@ -423,7 +424,17 @@ export const useStore = create<AeternumState>()(
         return true
       },
       setFortress: (f) => set({ fortress: f }),
-      upgradeFortressBuilding: (key) => set((s) => ({ fortress: { ...s.fortress, [key]: (s.fortress[key] as number) + 1 } })),
+      upgradeFortressBuilding: (key) => {
+        const { fortress, resources, inventory } = get()
+        const building = FORTRESS_BUILDINGS.find(b => b.key === key)
+        const next = (fortress[key] ?? 0) + 1
+        if (!building || next > building.maxLevel) return false
+        if (Object.keys(buildingShortfall(building, next - 1, resources, inventory.materials)).length) return false
+        get().spendResources(building.upgradeCost(next))
+        for (const [id, q] of Object.entries(buildingMaterialCost(building, next))) get().addMaterial(id, -q)
+        set({ fortress: { ...get().fortress, [key]: next } })
+        return true
+      },
       setCrops: (crops) => set({ crops }),
       unlockSkill: (skillId) => set((s) => ({
         unlockedSkillIds: s.unlockedSkillIds.includes(skillId) ? s.unlockedSkillIds : [...s.unlockedSkillIds, skillId],
