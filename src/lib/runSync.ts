@@ -31,6 +31,7 @@ export class SyncError extends Error {
       | 'NO_SESSION_FOUND'
       | 'NOT_AUTHENTICATED'
       | 'EDGE_FUNCTION_FAILED'
+      | 'ALREADY_SYNCED'
       | 'NETWORK_ERROR',
   ) {
     super(message)
@@ -100,6 +101,10 @@ export async function syncRun(playerId: string): Promise<SyncRunOutcome> {
       body: payload,
     })
 
+    // 409 = this workout was already resolved (e.g. re-sent by launch auto-sync).
+    if ((error as { context?: Response } | null)?.context?.status === 409) {
+      throw new SyncError('Your latest run is already synced.', 'ALREADY_SYNCED')
+    }
     if (error) {
       throw new SyncError(
         `Edge function error: ${error.message}`,
