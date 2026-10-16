@@ -22,7 +22,7 @@ import {
 } from '@/data/archetypes'
 import type { GearItem, Relic, GearLoadout, CraftRecipe, RecipeCategory, Element } from '@/types'
 import {
-  gearStatBonuses,
+  gearStatBonuses, rankLabel,
   STAT_KEYS, STAT_SOURCES, ELEMENT_LABELS, ELEMENT_ICONS,
   TRAIT_KEYS, TRAIT_LABELS, TRAIT_ICONS,
   PLAYER_SKILLS, type PlayerSkill, type TraitKey,
@@ -314,7 +314,7 @@ export default function HunterScreen() {
             <Text style={[styles.element, { color: palette.base }]}>
               {primaryArchetype
                 ? `${getArchetypeDef(primaryArchetype.id)?.tiers.find(t => t.rank === primaryArchetype.rank)?.name ?? 'Adventurer'} · Rank ${player?.rank ?? 'F'}`
-                : `Novice · Rank ${player?.rank ?? 'F'}`}
+                : `Novice · Rank ${rankLabel(player?.rank ?? 'F')}`}
             </Text>
           </View>
         </View>

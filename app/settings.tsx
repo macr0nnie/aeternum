@@ -10,7 +10,7 @@ import { SectionHeader, SystemWindow } from '@/components/UI'
 import { COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING } from '@/theme/tokens'
 import Constants from 'expo-constants'
 import { supabase, deleteAccount } from '@/lib/supabase'
-import { TRAIT_KEYS, PLAYER_SKILLS } from '@/types'
+import { TRAIT_KEYS, PLAYER_SKILLS, rankLabel } from '@/types'
 import type { TraitKey } from '@/types'
 
 const PRIVACY_POLICY_URL: string = Constants.expoConfig?.extra?.privacyPolicyUrl ?? ''
@@ -212,7 +212,7 @@ export default function SettingsScreen() {
           />
           <SettingRow
             label="Rank"
-            value={player?.rank ?? '—'}
+            value={player?.rank ? rankLabel(player.rank) : '—'}
           />
           <SettingRow
             label="Player ID"

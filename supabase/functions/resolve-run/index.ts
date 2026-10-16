@@ -275,23 +275,23 @@ function resolveRank(totalDistanceKm: number): string {
 type RunPattern = 'sprint' | 'endurance' | 'rare' | 'balanced'
 
 const TITLE_MAP: Record<string, Record<RunPattern, string>> = {
-  fire:    { sprint: 'Flashfire Striker', endurance: 'Ember Sovereign', rare: 'Cinderborn', balanced: 'Flamecaller' },
+  fire:    { sprint: 'Flashfire Striker', endurance: 'Emberheart', rare: 'Cinderborn', balanced: 'Flamecaller' },
   water:   { sprint: 'Tidal Dasher', endurance: 'Deepcurrent', rare: 'Abyssal Envoy', balanced: 'Wavebreaker' },
   nature:  { sprint: 'Thornwind Runner', endurance: 'Rootwarden', rare: 'Ancient Bloom', balanced: 'Wildstrider' },
   arcane:  { sprint: 'Riftcaster', endurance: 'Eternal Scholar', rare: 'Runic Arcanist', balanced: 'Veilwalker' },
-  shadow:  { sprint: 'Shadowblitz', endurance: 'Void Sovereign', rare: 'Umbral Spectre', balanced: 'Nightweaver' },
+  shadow:  { sprint: 'Shadowblitz', endurance: 'Void Pilgrim', rare: 'Umbral Spectre', balanced: 'Nightweaver' },
   frost:   { sprint: 'Blizzard Sprinter', endurance: 'Glacial Sentinel', rare: 'Absolute Zero', balanced: 'Cryomancer' },
   earth:   { sprint: 'Rockslide Charger', endurance: 'Ironclad Warden', rare: 'Tectonic Breaker', balanced: 'Stoneguard' },
-  harvest: { sprint: 'Grain Reaper', endurance: 'Field Sovereign', rare: 'Bountiful Sage', balanced: 'Plenty Walker' },
+  harvest: { sprint: 'Grain Reaper', endurance: 'Harvest Keeper', rare: 'Bountiful Sage', balanced: 'Plenty Walker' },
   forge:   { sprint: 'Molten Racer', endurance: 'Ironworks Titan', rare: 'Grand Artificer', balanced: 'Smithbound' },
   mending: { sprint: 'Swift Mender', endurance: 'Undying Healer', rare: 'Sacred Restorer', balanced: 'Lifebinder' },
 }
 
 function generateTitle(element: string | null, pattern: RunPattern): string {
-  if (!element) return 'Unawakened'
+  if (!element) return 'Unkindled'
   const titles = TITLE_MAP[element.toLowerCase()]
-  if (!titles) return 'Unawakened'
-  return titles[pattern] ?? 'Unawakened'
+  if (!titles) return 'Unkindled'
+  return titles[pattern] ?? 'Unkindled'
 }
 
 // Fixed: rare (≥15km) checked before endurance (≥10km) so neither branch shadows the other
@@ -439,7 +439,7 @@ Deno.serve(async (req: Request) => {
     const newRank = resolveRank(newTotalDistance)
     const pattern = classifyRunPattern(safeBody)
     const newTitle = generateTitle(player.primary_element as string | null, pattern)
-    const titleChanged = newTitle !== player.title && newTitle !== 'Unawakened'
+    const titleChanged = newTitle !== player.title && newTitle !== 'Unkindled'
     const newChronicle = titleChanged
       ? [...(player.title_chronicle as string[]), player.title]
       : player.title_chronicle

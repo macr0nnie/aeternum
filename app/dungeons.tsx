@@ -17,7 +17,7 @@ import {
   COLORS, FONTS, FONT_SIZES, LETTER_SPACING, SPACING, BORDER, RADIUS,
   elementAccent, SHADOWS,
 } from '@/theme/tokens'
-import { DUNGEON_ENTRIES, STAT_KEYS, RIFT_INFLUENCE_REWARD, type DungeonEntry, type Element, type TraitKey, type DroppedReward, type Stats } from '@/types'
+import { DUNGEON_ENTRIES, rankLabel, STAT_KEYS, RIFT_INFLUENCE_REWARD, type DungeonEntry, type Element, type TraitKey, type DroppedReward, type Stats } from '@/types'
 import { RewardPopup } from '@/components/RewardPopup'
 import { resolveCoOpGate, type PublicPlayer } from '@/lib/supabase'
 import { computeRewards } from '@/lib/rewardEngine'
@@ -178,7 +178,7 @@ function CoOpModal({ dungeon, partyMembers, hostId, onConfirm, onClose }: CoOpMo
                       <View style={coopStyles.memberInfo}>
                         <Text style={coopStyles.memberName}>{m.username}</Text>
                         <Text style={coopStyles.memberSub}>
-                          RANK {m.rank} · PWR {m.total_stat_power}
+                          RANK {rankLabel(m.rank)} · PWR {m.total_stat_power}
                         </Text>
                       </View>
                       <View style={[coopStyles.checkbox, isSelected && { backgroundColor: COLORS.success }]}>
@@ -454,7 +454,7 @@ export default function DungeonsScreen() {
             <Label variant="tertiary" size="xs">CURRENT RANK</Label>
             <View style={[styles.hunterRankPill, { borderColor: DUNGEON_RANK_COLORS[player?.rank ?? 'F'] }]}>
               <Text style={[styles.hunterRankTxt, { color: DUNGEON_RANK_COLORS[player?.rank ?? 'F'] }]}>
-                {`RANK ${player?.rank ?? 'F'}`}
+                {`RANK ${rankLabel(player?.rank ?? 'F')}`}
               </Text>
             </View>
           </View>
