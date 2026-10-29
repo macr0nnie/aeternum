@@ -956,8 +956,9 @@ export function territoryUpgradeCost(currentLevel: number): Partial<PlayerResour
 
 export interface Territory {
   id: string
-  owner_id: string
-  owner_username?: string
+  owner_id: string | null       // null for rivals: the server hides who owns them
+  cell_key?: string
+  warded?: boolean              // rival can't be attacked right now (no end time shown)
   lat: number
   lng: number
   name: string

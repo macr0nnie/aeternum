@@ -46,3 +46,16 @@ export function stillnessFog(center: { lat: number; lng: number } | null) {
     : [{ type: 'Feature' as const, properties: { opacity: 0.85 }, geometry: { type: 'Polygon' as const, coordinates: [WORLD] } }]
   return { type: 'FeatureCollection' as const, features }
 }
+
+// ~250 m claim cells: every territory sits at its cell's centre, so a pin never
+// marks a real doorstep. Mirrors territory_cell() in
+// supabase/migrations/011_territory_cells.sql. shortcut: kept in sync by hand.
+const CELL_DEG = 0.00225
+
+export function territoryCell(lat: number, lng: number): { key: string; lat: number; lng: number } {
+  const r = Math.floor(lat / CELL_DEG)
+  const cLat = (r + 0.5) * CELL_DEG
+  const lngStep = CELL_DEG / Math.max(Math.cos((cLat * Math.PI) / 180), 0.01)
+  const c = Math.floor(lng / lngStep)
+  return { key: `${r}:${c}`, lat: cLat, lng: (c + 0.5) * lngStep }
+}

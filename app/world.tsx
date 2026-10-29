@@ -243,7 +243,8 @@ function TerritoryModal({
   // Siege: raid weakens HP (and steals resources); capture is unlocked once HP
   // drops below the threshold. The server decides both; stamina is spent only
   // when it accepts.
-  const shieldH = shieldHoursLeft(territory)
+  // Rivals only report `warded`; the end time stays with the owner.
+  const warded = territory.warded ?? shieldHoursLeft(territory) > 0
   const captureReady = hpPct <= CAPTURE_HP_THRESHOLD && !preview?.last_territory
 
   async function siege(cost: number, call: () => PromiseLike<{ data: unknown; error: { message: string } | null }>, done: (t: Territory) => void) {
@@ -274,7 +275,7 @@ function TerritoryModal({
           <SystemWindow title={isOwn ? '◆ YOUR TERRITORY' : '◆ ENEMY TERRITORY'} variant={isOwn ? 'gold' : 'alert'}>
             <Text style={modal.name}>{territory.name}</Text>
             <Text style={modal.sub}>
-              {territory.owner_username ?? territory.owner_id.slice(0, 8)} · Level {territory.level}
+              {isOwn ? 'Yours' : 'Rival Wayfarer'} · Level {territory.level}
             </Text>
 
             {/* Owned territory: HP / Defense / resources / upgrade / repair */}
@@ -367,13 +368,13 @@ function TerritoryModal({
 
                 {/* Range + shield gates */}
                 {!inRange && <Text style={tm.rangeWarn}>⊘ {rangeLabel}</Text>}
-                {shieldH > 0 && <Text style={tm.rangeWarn}>⊘ Shielded for {shieldH}h after a recent claim or capture.</Text>}
+                {warded && <Text style={tm.rangeWarn}>⊘ Warded after a recent claim or capture. It can't be attacked yet.</Text>}
 
                 {/* Raid — weaken + steal */}
                 <TouchableOpacity
-                  style={[modal.attackBtn, (!inRange || shieldH > 0 || stamina < STAMINA_COSTS.raid) && tm.disabledBtn]}
+                  style={[modal.attackBtn, (!inRange || warded || stamina < STAMINA_COSTS.raid) && tm.disabledBtn]}
                   onPress={handleRaid}
-                  disabled={loading || !inRange || shieldH > 0 || stamina < STAMINA_COSTS.raid}
+                  disabled={loading || !inRange || warded || stamina < STAMINA_COSTS.raid}
                   activeOpacity={0.75}
                 >
                   {loading
@@ -384,9 +385,9 @@ function TerritoryModal({
                 {/* Capture — only when weakened enough */}
                 {captureReady ? (
                   <TouchableOpacity
-                    style={[tm.captureBtn, (!inRange || shieldH > 0 || stamina < STAMINA_COSTS.capture) && tm.disabledBtn]}
+                    style={[tm.captureBtn, (!inRange || warded || stamina < STAMINA_COSTS.capture) && tm.disabledBtn]}
                     onPress={handleCapture}
-                    disabled={loading || !inRange || shieldH > 0 || stamina < STAMINA_COSTS.capture}
+                    disabled={loading || !inRange || warded || stamina < STAMINA_COSTS.capture}
                     activeOpacity={0.75}
                   >
                     <Text style={tm.captureTxt}><Icon name="flag" size={13} color={COLORS.systemGold} /> CAPTURE   ({STAMINA_COSTS.capture} stamina)</Text>
@@ -745,7 +746,7 @@ export default function WorldScreen() {
     if (!player) return { territories: 0, nodes: 0 }
     try {
       const [nearby, mine, nodes] = await Promise.all([
-        fetchNearbyTerritories(lat, lng, ATTACK_RANGE_KM),
+        fetchNearbyTerritories(lat, lng),
         fetchMyTerritories(player.id),
         fetchNearbyNodes(lat, lng, 2),
       ])
@@ -775,24 +776,13 @@ export default function WorldScreen() {
       return
     }
     setLocation(loc)
-    let result = await loadMapData(loc.lat, loc.lng)
+    const result = await loadMapData(loc.lat, loc.lng)
     cameraRef.current?.jumpTo({ center: coord(loc.lat, loc.lng), zoom: 14 })
     addTrait('exploration' as TraitKey, 2)
 
-    // First-run seeding: if the world is empty AND the player owns nothing yet,
-    // spawn a FREE starter territory + nodes so a new player always has something
-    // to interact with. Online players only (territory lives on the backend).
+    // No free starter territory: one at the first scan's GPS point would mark
+    // the player's home. The Fortress is the home base; map claims are chosen.
     const isOffline = player.id.startsWith('offline-')
-    const ownsNothing = myTerritories.length === 0
-    if (!isOffline && ownsNothing && result.territories === 0 && result.nodes === 0) {
-      const seeded = await seedStarterTerritory(loc.lat, loc.lng)
-      if (seeded) {
-        result = await loadMapData(loc.lat, loc.lng)
-        setScanning(false)
-        showNote('Starter territory established! Resource nodes spawned nearby.')
-        return
-      }
-    }
 
     setScanning(false)
     const { territories, nodes } = result ?? { territories: 0, nodes: 0 }
@@ -803,22 +793,6 @@ export default function WorldScreen() {
           ? 'Territory needs an online account — sign in to claim.'
           : 'No activity nearby — pan the crosshair and tap CLAIM HERE.'
     )
-  }
-
-  // Spawn a free starter territory + nodes at the given location. Returns true on
-  // success. No influence cost — this is the new-player onramp.
-  async function seedStarterTerritory(lat: number, lng: number): Promise<boolean> {
-    if (!player) return false
-    try {
-      const { data } = await placeTerritory(player.id, lat, lng, `${player.username}'s Outpost`)
-      if (!data) return false
-      addMyTerritory(data as Territory)
-      addTrait('conquest' as TraitKey, 5)
-      await spawnNodesNearTerritory(data.id, lat, lng).catch(() => null)
-      return true
-    } catch {
-      return false
-    }
   }
 
   async function handlePlace(name: string) {
@@ -863,18 +837,24 @@ export default function WorldScreen() {
     setLocation(loc)
     let placed = false
     try {
-      const { data } = await placeTerritory(player.id, loc.lat, loc.lng, name)
+      const { data, error } = await placeTerritory(player.id, loc.lat, loc.lng, name)
       if (data) {
         placed = true
         addMyTerritory(data as Territory)
         addTrait('conquest' as TraitKey, 10)
         addTrait('exploration' as TraitKey, 3)
-        await spawnNodesNearTerritory(data.id, loc.lat, loc.lng).catch(() => null)
+        // Around the snapped cell centre, not the crosshair.
+        await spawnNodesNearTerritory(data.id, data.lat, data.lng).catch(() => null)
         await loadMapData(loc.lat, loc.lng)
         showNote('Territory claimed! Resource nodes spawned nearby.')
       } else {
         addInfluence(TERRITORY_PLACE_COST)
-        Alert.alert('Error', 'Could not claim territory. Influence refunded.')
+        Alert.alert(
+          error?.code === '23505' ? 'Cell already held' : 'Error',
+          error?.code === '23505'
+            ? 'Another territory already holds this cell. Pick a free one. Influence refunded.'
+            : 'Could not claim territory. Influence refunded.',
+        )
       }
     } catch {
       if (!placed) {
@@ -1148,7 +1128,7 @@ export default function WorldScreen() {
           addMyTerritory(t)
           if (location) loadMapData(location.lat, location.lng)
           setSelectedTerritory(null)
-          showNote('Territory captured! It and its nodes are now yours. Shielded for 12h.')
+          showNote('Territory captured! It and its nodes are now yours. Warded for 12h.')
         }}
         onRaided={(t, stolen) => {
           setNearbyTerritories(nearbyTerritories.map(x => x.id === t.id ? t : x))
