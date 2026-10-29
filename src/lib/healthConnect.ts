@@ -22,7 +22,9 @@ import {
   openHealthConnectSettings,
   getSdkStatus,
   SdkAvailabilityStatus,
+  ExerciseType,
 } from 'react-native-health-connect'
+import { Linking } from 'react-native'
 
 // Result of attempting to connect Health Connect, so the UI can guide the user
 // instead of just showing a vague success/fail.
@@ -33,16 +35,24 @@ export type HealthConnectResult =
   | 'needs-update'    // Health Connect needs updating
   | 'unavailable'     // device/SDK can't support it
 
-// Open the Health Connect permission UI directly (in-app, no device Settings
-// digging). Used as a fallback when the user previously denied — Android won't
-// re-show the popup, but this jumps straight to the right screen.
+// Open Aeternum's own page in Health Connect's permission settings. Used after
+// the user denied — Android won't re-show the popup. Falls back to the general
+// Health Connect settings if the system intent isn't handled.
 export function openHealthPermissionUI(): void {
-  try {
-    openHealthConnectSettings()
-  } catch {
-    // no-op — module unavailable
-  }
+  Linking.sendIntent('android.health.connect.action.MANAGE_HEALTH_PERMISSIONS', [
+    { key: 'android.intent.extra.PACKAGE_NAME', value: 'com.aeternum.app' },
+  ]).catch(() => {
+    try {
+      openHealthConnectSettings()
+    } catch {
+      // no-op — module unavailable
+    }
+  })
 }
+
+// Only runs count. Other workouts (cycling, yoga, walks) would fail the pace
+// checks or award running stats for something else.
+const RUN_TYPES: number[] = [ExerciseType.RUNNING, ExerciseType.RUNNING_TREADMILL]
 import type { HealthConnectSession } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -129,7 +139,7 @@ export async function readLastRun(): Promise<HealthConnectSession | null> {
     })
 
     // Records aren't guaranteed to be ordered — pick the latest by end time.
-    const sessions = [...(sessionResult.records ?? [])].sort(
+    const sessions = (sessionResult.records ?? []).filter(r => RUN_TYPES.includes(r.exerciseType)).sort(
       (a, b) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime(),
     )
     const session = sessions[sessions.length - 1]
