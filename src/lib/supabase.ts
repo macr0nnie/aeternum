@@ -261,14 +261,10 @@ function boundingBox(lat: number, lng: number, radiusKm: number) {
   return { minLat: lat - latD, maxLat: lat + latD, minLng: lng - lngD, maxLng: lng + lngD }
 }
 
-export async function fetchNearbyTerritories(lat: number, lng: number, radiusKm = 5) {
-  const b = boundingBox(lat, lng, radiusKm)
-  return supabase
-    .from('territories')
-    .select('*, players!owner_id(username)')
-    .gte('lat', b.minLat).lte('lat', b.maxLat)
-    .gte('lng', b.minLng).lte('lng', b.maxLng)
-    .limit(200)
+// Territories within ~1.5 km (migration 011). Rivals come back without owner_id
+// or shield_until; `warded` says whether they can be attacked right now.
+export async function fetchNearbyTerritories(lat: number, lng: number) {
+  return supabase.rpc('territories_near', { p_lat: lat, p_lng: lng })
 }
 
 export async function fetchMyTerritories(playerId: string) {
@@ -279,6 +275,8 @@ export async function fetchMyTerritories(playerId: string) {
     .order('created_at', { ascending: false })
 }
 
+// The server snaps the claim to its ~250 m cell centre and keeps one territory
+// per cell; a taken cell fails with code 23505.
 export async function placeTerritory(ownerId: string, lat: number, lng: number, name: string) {
   return supabase
     .from('territories')

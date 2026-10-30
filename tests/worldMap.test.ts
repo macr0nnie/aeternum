@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { regionName, stillnessFog, STILLNESS_CLEAR_M } from '@/lib/worldMap'
+import { regionName, stillnessFog, STILLNESS_CLEAR_M, territoryCell } from '@/lib/worldMap'
 
 describe('regionName', () => {
   it('gives the same lore name anywhere inside one region square', () => {
@@ -32,5 +32,19 @@ describe('stillnessFog', () => {
       const dx = (lng + 74) * 111_320 * Math.cos((40 * Math.PI) / 180)
       expect(Math.hypot(dx, dy)).toBeCloseTo(STILLNESS_CLEAR_M, 0)
     }
+  })
+})
+
+describe('territoryCell', () => {
+  it('snaps nearby points to one ~250 m cell centre', () => {
+    const a = territoryCell(51.50101, -0.14201)
+    const b = territoryCell(51.50150, -0.14150)
+    expect(a).toEqual(b)
+    expect(Math.abs(a.lat - 51.50101) * 111_000).toBeLessThan(250)
+  })
+
+  it('matches the SQL territory_cell() output for a fixed point', () => {
+    // From: select * from territory_cell(51.50101, -0.14201)
+    expect(territoryCell(51.50101, -0.14201).key).toBe('22889:-40')
   })
 })
