@@ -42,19 +42,20 @@ export function usePersistenceSync() {
     return () => { if (progressTimer.current) clearTimeout(progressTimer.current) }
   }, [completedQuestIds, clearedDungeonIds, player?.id])
 
-  // Debounced stats + rank save (3 s — only on actual change)
+  // Debounced stats save (3 s — only on actual change). Rank is server-owned
+  // (resolve-run); writing the client's copy back undid rank-ups.
   const prevStats = useRef<string>('')
   useEffect(() => {
     if (!player?.id || !player.stats) return
-    const key = JSON.stringify(player.stats) + player.rank
+    const key = JSON.stringify(player.stats)
     if (key === prevStats.current) return
     prevStats.current = key
     if (statsTimer.current) clearTimeout(statsTimer.current)
     statsTimer.current = setTimeout(() => {
-      savePlayerStats(player.id, player.stats as Stats, player.rank)
+      savePlayerStats(player.id, player.stats as Stats)
     }, 3000)
     return () => { if (statsTimer.current) clearTimeout(statsTimer.current) }
-  }, [player?.stats, player?.rank, player?.id])
+  }, [player?.stats, player?.id])
 
   // Debounced resources save (3 s). Maps store keys → DB columns (mana→mana_res,
   // gold→gold_res). Without this, influence/iron/gold earned on the map were

@@ -28,11 +28,13 @@ interface ValidationResult {
   flagReason?: string
 }
 
+// id is the item's catalog id (src/data/items.ts) so the client can add it to
+// the inventory.
 interface Reward {
   id: string
   name: string
   rarity: 'common' | 'uncommon' | 'rare' | 'legendary'
-  type: 'gear' | 'scroll' | 'consumable' | 'material'
+  type: 'consumable' | 'material'
 }
 
 interface Stats {
@@ -52,6 +54,8 @@ interface RunResponse {
   rewards: Reward[]
   stat_gains: Partial<Stats>
   flag_reason?: string
+  // Server-owned progression after this run, so the client never has to guess.
+  player?: { rank: string; total_distance_km: number; title: string }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,34 +190,36 @@ function generateRewards(
   started_at: string,
   confidence: number,
 ): Reward[] {
-  const { rarity } = getRewardTier(distance_km)
+  const tier = getRewardTier(distance_km).rarity
+  // Low-confidence runs (step/distance ratio out of band) drop one tier.
+  const rarity = confidence <= 0.6 ? downgradeRarity(tier) : tier
   const seed = parseInt(player_id.replace(/-/g, '').slice(0, 8), 16)
     + new Date(started_at).getTime()
   const rewardCount = Math.floor((seed % 3) + 1 + Math.floor(distance_km / 5))
 
-  const REWARD_POOLS: Record<Reward['rarity'], Omit<Reward, 'id'>[]> = {
+  // shortcut: mirrors MATERIALS/CONSUMABLES ids in src/data/items.ts by hand
+  // (Deno can't import app code); update both when the catalog changes.
+  const REWARD_POOLS: Record<Reward['rarity'], Omit<Reward, 'rarity'>[]> = {
     common: [
-      { name: 'Iron Shard', rarity: 'common', type: 'material' },
-      { name: "Runner's Tonic", rarity: 'common', type: 'consumable' },
-      { name: 'Trail Dust', rarity: 'common', type: 'material' },
-      { name: 'Worn Bracer', rarity: 'common', type: 'gear' },
+      { id: 'mat_wolf_fang', name: 'Wolf Fang', type: 'material' },
+      { id: 'mat_stone_chip', name: 'Stone Chip', type: 'material' },
+      { id: 'con_minor_elixir', name: 'Minor Elixir', type: 'consumable' },
+      { id: 'con_swiftness_draft', name: 'Swiftness Draft', type: 'consumable' },
     ],
     uncommon: [
-      { name: 'Vitality Scroll', rarity: 'uncommon', type: 'scroll' },
-      { name: 'Thornmail Fragment', rarity: 'uncommon', type: 'material' },
-      { name: 'Elite Badge', rarity: 'uncommon', type: 'consumable' },
-      { name: 'Dusk Charm', rarity: 'uncommon', type: 'gear' },
+      { id: 'mat_mana_shard', name: 'Mana Shard', type: 'material' },
+      { id: 'mat_ember_core', name: 'Ember Core', type: 'material' },
+      { id: 'mat_storm_essence', name: 'Storm Essence', type: 'material' },
+      { id: 'con_drop_amplifier', name: 'Drop Amplifier', type: 'consumable' },
     ],
     rare: [
-      { name: 'Arcane Codex', rarity: 'rare', type: 'scroll' },
-      { name: 'Dungeon Key', rarity: 'rare', type: 'consumable' },
-      { name: 'Storm Pendant', rarity: 'rare', type: 'gear' },
-      { name: 'Forge Core', rarity: 'rare', type: 'material' },
+      { id: 'mat_void_fragment', name: 'Void Fragment', type: 'material' },
+      { id: 'mat_shadow_silk', name: 'Shadow Silk', type: 'material' },
+      { id: 'con_sovereigns_draught', name: "Grandmaster's Draught", type: 'consumable' },
     ],
     legendary: [
-      { name: "Sovereign's Sigil", rarity: 'legendary', type: 'gear' },
-      { name: 'Raid Trophy', rarity: 'legendary', type: 'consumable' },
-      { name: 'Elder Scroll', rarity: 'legendary', type: 'scroll' },
+      { id: 'mat_sovereign_dust', name: 'Grandmaster Dust', type: 'material' },
+      { id: 'mat_star_alloy', name: 'Star Alloy', type: 'material' },
     ],
   }
 
@@ -221,12 +227,7 @@ function generateRewards(
   const rewards: Reward[] = []
   for (let i = 0; i < Math.min(rewardCount, pool.length); i++) {
     const item = pool[(seed + i) % pool.length]
-    if (item) {
-      const effectiveRarity = confidence < 0.6 && rarity !== 'common'
-        ? downgradeRarity(rarity)
-        : rarity
-      rewards.push({ id: `${started_at}-${i}`, ...item, rarity: effectiveRarity })
-    }
+    if (item) rewards.push({ ...item, rarity })
   }
   return rewards
 }
@@ -416,11 +417,16 @@ Deno.serve(async (req: Request) => {
     .select('id')
     .single()
 
+  // 23505 = unique violation: a concurrent request stored this run first.
+  if (insertError?.code === '23505') {
+    return json({ error: 'This run has already been submitted' }, 409)
+  }
   if (insertError || !runSession) {
     return json({ error: 'Failed to store run session' }, 500)
   }
 
   // Update player stats, distance, rank, and title
+  let playerUpdate: RunResponse['player']
   if (validation.valid) {
     const currentStats = player.stats as Stats
     const newStats: Stats = { ...currentStats }
@@ -438,16 +444,19 @@ Deno.serve(async (req: Request) => {
       ? [...(player.title_chronicle as string[]), player.title]
       : player.title_chronicle
 
-    await db
+    const title = (titleChanged ? newTitle : player.title) as string
+    const { error: updateError } = await db
       .from('players')
       .update({
         stats: newStats,
         total_distance_km: newTotalDistance,
         rank: newRank,
-        title: titleChanged ? newTitle : player.title,
+        title,
         title_chronicle: newChronicle,
       })
       .eq('id', player_id)
+    if (updateError) return json({ error: 'Failed to update player' }, 500)
+    playerUpdate = { rank: newRank, total_distance_km: newTotalDistance, title }
   }
 
   const response: RunResponse = {
@@ -456,6 +465,7 @@ Deno.serve(async (req: Request) => {
     rewards,
     stat_gains: statGains,
     ...(validation.flagReason ? { flag_reason: validation.flagReason } : {}),
+    ...(playerUpdate ? { player: playerUpdate } : {}),
   }
 
   return json(response)

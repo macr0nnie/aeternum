@@ -211,6 +211,11 @@ export default Sentry.wrap(function RootLayout() {
         applyRunResult(result, summary)
       } catch (err) {
         if (!active) return
+        // Nothing new since the last sync — not an error on launch.
+        if ((err as { code?: string }).code === 'ALREADY_SYNCED') {
+          setSyncState('idle')
+          return
+        }
         // Silently set error state — no crash, no alert
         setSyncState('error')
         const msg = err instanceof Error ? err.message : 'Sync unavailable.'
