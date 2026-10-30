@@ -5,12 +5,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  RefreshControl, Modal,
+  RefreshControl, Modal, Alert,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import {
   useStore, selectPlayer, selectResources, selectFortress,
-  selectMyTerritories, selectCrops, selectUnlockedSkillIds,
+  selectMyTerritories, selectCrops, selectUnlockedSkillIds, selectInventory,
 } from '@/store/useStore'
 import { SystemWindow, SectionHeader, Label, Spacer, Icon } from '@/components/UI'
 import {
@@ -19,12 +19,14 @@ import {
 import {
   fetchPlayerResources, upsertPlayerResources, fetchFortress,
   fetchMyTerritories, fetchFortressCrops, plantCrop, harvestCrop, removeCrop,
-  saveDefenseSlots, fetchPlayerSkills,
+  saveDefenseSlots, fetchPlayerSkills, upsertFortress,
 } from '@/lib/supabase'
+import { findMaterialById } from '@/data/items'
 import {
   RESOURCE_ICONS, TYPE_MATCHUP_CHART, ELEMENT_LABELS, ELEMENT_ICONS,
-  ALL_SKILLS, BASE_SKILLS, CROP_CONFIG,
-  type Element, type Territory, type FortressCrop, type CropType,
+  ALL_SKILLS, BASE_SKILLS, CROP_CONFIG, FORTRESS_BUILDINGS, RESOURCE_LABELS,
+  buildingMaterialCost, buildingShortfall, territoryDefense,
+  type Element, type FortressBuilding, type ResourceType, type Stats, type Territory, type FortressCrop, type CropType,
   type DefenseSlot, type PlayerSkill,
 } from '@/types'
 import type { Element as ElementType } from '@/types'
@@ -396,7 +398,9 @@ export default function FortressScreen() {
   const myTerritories = useStore(selectMyTerritories)
   const crops = useStore(selectCrops)
   const unlockedSkillIds = useStore(selectUnlockedSkillIds)
-  const { setResources, setFortress, setMyTerritories, setCrops, addResource, unlockSkill } = useStore()
+  const inventory = useStore(selectInventory)
+  const resources = useStore(selectResources)
+  const { setResources, setFortress, setMyTerritories, setCrops, addResource, unlockSkill, upgradeFortressBuilding } = useStore()
 
   const [refreshing, setRefreshing] = useState(false)
   const [slotModal, setSlotModal] = useState<number | null>(null)    // which slot is being edited
@@ -467,6 +471,21 @@ export default function FortressScreen() {
     await saveDefenseSlots(player.id, next)
   }
 
+  // Building upgrades: paid in harvested resources + run loot. Saved to the
+  // server first (raids read walls/barracks from there), then paid locally.
+  async function handleUpgradeBuilding(b: FortressBuilding) {
+    if (!player) return
+    const level = fortress[b.key] ?? 0
+    const missing = buildingShortfall(b, level, resources, inventory.materials)
+    if (Object.keys(missing).length) {
+      Alert.alert('Not enough', costText(missing))
+      return
+    }
+    const { error } = await upsertFortress(player.id, { [b.key]: level + 1 })
+    if (error) { Alert.alert('Upgrade failed', 'Check your connection and try again.'); return }
+    upgradeFortressBuilding(b.key)
+  }
+
   // Crop management
   async function handlePlantCrop(slotIndex: number, cropType: CropType) {
     if (!player) return
@@ -504,9 +523,8 @@ export default function FortressScreen() {
     : null
   const unlockedBaseSkills = BASE_SKILLS.filter(s => unlockedSkillIds.includes(s.id))
 
-  // Defense rating (rough sum of base skill count × 20)
-  const defRating = defenseSlots.filter(s => s.skill_id).length * 20 +
-    myTerritories.length * 5
+  // Defense your territories get from you + this base (before territory level).
+  const defRating = territoryDefense(player?.stats as Partial<Stats> | undefined, 0, fortress.walls_level, defenseSlots)
 
   return (
     <SafeAreaView style={styles.root}>
@@ -559,6 +577,37 @@ export default function FortressScreen() {
           unlockedSkillIds={unlockedSkillIds}
           onSlotPress={(i) => setSlotModal(i)}
         />
+
+        {/* ── Buildings ── */}
+        <Spacer size="md" />
+        <SectionHeader title="BUILDINGS" color={palette.base} />
+        {/* Forge is left out until crafting reads forge_level. */}
+        {FORTRESS_BUILDINGS.filter(b => b.key !== 'forge_level').map(b => {
+          const level = fortress[b.key] ?? 0
+          const maxed = level >= b.maxLevel
+          const cost = { ...b.upgradeCost(level + 1), ...buildingMaterialCost(b, level + 1) }
+          const short = maxed ? {} : buildingShortfall(b, level, resources, inventory.materials)
+          const ready = !maxed && Object.keys(short).length === 0
+          return (
+            <View key={b.key} style={styles.buildingRow}>
+              <Icon name={b.icon} size={20} color={palette.base} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.statusVal}>{b.name} · L{level}/{b.maxLevel}</Text>
+                <Text style={styles.emptyHintTxt}>{b.statBonus}</Text>
+                {!maxed && <Text style={styles.emptyHintTxt}>Next: {costText(cost)}</Text>}
+              </View>
+              <TouchableOpacity
+                style={[styles.upgradeBtn, { borderColor: palette.base }, !ready && { opacity: 0.4 }]}
+                onPress={() => handleUpgradeBuilding(b)}
+                disabled={maxed}
+                accessibilityRole="button"
+                accessibilityLabel={maxed ? `${b.name} is at max level` : `Upgrade ${b.name}`}
+              >
+                <Text style={[styles.statusVal, { color: palette.base }]}>{maxed ? 'MAX' : 'UPGRADE'}</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        })}
 
         {/* ── Gardens ── */}
         <Spacer size="md" />
@@ -692,7 +741,22 @@ export default function FortressScreen() {
 // Styles
 // =============================================================================
 
+// "Iron Ore 15 · Stone Chip 2" for a resource / material cost map.
+function costText(cost: Record<string, number | undefined>): string {
+  return Object.entries(cost)
+    .map(([k, v]) => `${RESOURCE_LABELS[k as ResourceType] ?? findMaterialById(k)?.name ?? k} ${v}`)
+    .join(' · ')
+}
+
 const styles = StyleSheet.create({
+  buildingRow: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.sm,
+    paddingVertical: SPACING.sm, borderBottomWidth: BORDER.thin, borderBottomColor: COLORS.borderMid,
+  },
+  upgradeBtn: {
+    minHeight: 44, justifyContent: 'center', paddingHorizontal: SPACING.md,
+    borderWidth: BORDER.thin, borderRadius: RADIUS.sm,
+  },
   root: { flex: 1, backgroundColor: COLORS.ground },
   scroll: { paddingHorizontal: SPACING.md, paddingTop: SPACING.md },
   header: { alignItems: 'center', marginBottom: SPACING.md },

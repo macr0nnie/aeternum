@@ -287,55 +287,29 @@ export async function placeTerritory(ownerId: string, lat: number, lng: number, 
     .single()
 }
 
-// Persist a territory upgrade: bump level and raise max_health (and top up health).
-export async function upgradeTerritory(territoryId: string, newLevel: number, newMaxHealth: number) {
-  return supabase
-    .from('territories')
-    .update({ level: newLevel, max_health: newMaxHealth, health: newMaxHealth })
-    .eq('id', territoryId)
-    .select()
-    .single()
+// Territory changes go through server functions (migration 010), which decide
+// raid damage and captures. Each returns the updated row, or an error whose
+// message is safe to show the player.
+export async function upgradeTerritory(territoryId: string) {
+  return supabase.rpc('upgrade_territory', { p_territory_id: territoryId }).single()
 }
 
-// Restore a territory to full health.
-export async function repairTerritory(territoryId: string, maxHealth: number) {
-  return supabase
-    .from('territories')
-    .update({ health: maxHealth })
-    .eq('id', territoryId)
-    .select()
-    .single()
+export async function repairTerritory(territoryId: string) {
+  return supabase.rpc('repair_territory', { p_territory_id: territoryId }).single()
 }
 
-// Raid an enemy territory: lower its health (siege). Returns the updated row.
-// Logs the action in territory_attacks. Capture happens separately once HP is low.
-export async function raidTerritory(
-  attackerId: string, defenderId: string, territoryId: string, newHealth: number,
-  atkPower: number, defPower: number,
-) {
-  await supabase.from('territory_attacks').insert({
-    attacker_id: attackerId, defender_id: defenderId, territory_id: territoryId,
-    outcome: 'win', atk_power: atkPower, def_power: defPower,
-  })
-  return supabase
-    .from('territories')
-    .update({ health: Math.max(0, newHealth) })
-    .eq('id', territoryId)
-    .select()
-    .single()
+export async function raidTerritory(territoryId: string) {
+  return supabase.rpc('raid_territory', { p_territory_id: territoryId }).single()
 }
 
-// Capture a sufficiently-weakened enemy territory: transfer ownership and
-// restore it to full health under the new owner.
-export async function captureTerritory(
-  attackerId: string, territoryId: string, maxHealth: number,
-) {
-  return supabase
-    .from('territories')
-    .update({ owner_id: attackerId, health: maxHealth })
-    .eq('id', territoryId)
-    .select()
-    .single()
+export async function captureTerritory(territoryId: string) {
+  return supabase.rpc('capture_territory', { p_territory_id: territoryId }).single()
+}
+
+// Attack vs defense power and shield state for the attack screen.
+export async function fetchBattlePreview(territoryId: string) {
+  return supabase.rpc('territory_battle_preview', { p_territory_id: territoryId })
+    .single<{ atk: number; def: number; shield_until: string | null; last_territory: boolean }>()
 }
 
 export async function fetchNearbyNodes(lat: number, lng: number, radiusKm = 0.3) {
@@ -370,21 +344,6 @@ export async function spawnNodesNearTerritory(territoryId: string, lat: number, 
     }
   })
   return supabase.from('resource_nodes').insert(nodes)
-}
-
-export async function attackTerritory(
-  attackerId: string, defenderId: string, territoryId: string,
-  atkPower: number, defPower: number, outcome: 'win' | 'loss',
-) {
-  const { data: atk } = await supabase
-    .from('territory_attacks')
-    .insert({ attacker_id: attackerId, defender_id: defenderId, territory_id: territoryId, outcome, atk_power: atkPower, def_power: defPower })
-    .select().single()
-
-  if (outcome === 'win') {
-    await supabase.from('territories').update({ owner_id: attackerId }).eq('id', territoryId)
-  }
-  return atk
 }
 
 export async function fetchPlayerResources(playerId: string) {
