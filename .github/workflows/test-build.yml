@@ -1,0 +1,43 @@
+# Every push to main: test, build the Android bundle on EAS, and upload it to
+# the Google Play internal testing track (eas.json submit.production).
+# Required: repo secret EXPO_TOKEN, and the Play service account key stored on
+# EAS (`npx eas credentials`). The very first Play upload must be done by hand.
+name: Test build
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: test-build
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm test
+
+  play-internal:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - run: npm ci
+      # EAS finishes the build and the Play upload on its side, so the runner doesn't wait.
+      - run: eas build --platform android --profile production --non-interactive --auto-submit --no-wait
