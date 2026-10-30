@@ -1,35 +1,39 @@
 // =============================================================================
 // Aeternum — World Map Screen
-// MapLibre + OpenStreetMap (CARTO Dark Matter — free, no API key)
+// MapLibre + OpenFreeMap vector tiles, styled as a game world (src/theme/mapStyle.ts)
 // Claim territories · Attack enemies · Harvest resource nodes
 // =============================================================================
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal, TextInput,
-  Alert, ActivityIndicator,
+  Alert, ActivityIndicator, Image,
 } from 'react-native'
 import {
   Map as MapLibreMap, Camera, UserLocation,
-  GeoJSONSource, Layer, ViewAnnotation,
+  GeoJSONSource, Layer, ViewAnnotation, Images,
 } from '@maplibre/maplibre-react-native'
 import type { CameraRef } from '@maplibre/maplibre-react-native'
 import { Ionicons } from '@expo/vector-icons'
 
-// Parchment-map palette for resource nodes (icon + tint per type, no emoji).
-const RESOURCE_TINT: Record<ResourceType, string> = {
-  iron:    '#8a8f9c',
-  crystal: '#6fb1e0',
-  mana:    '#a880e0',
-  herbs:   '#6fb56a',
-  gold:    '#d4af52',
+// Painted map art (assets/map). Textures are tiled by MAP_STYLE fill-patterns;
+// the ember is the Wayfarer marker. Icons are drawn at 3x.
+const MAP_IMAGES = {
+  paper:  require('../assets/map/paper.png'),
+  meadow: require('../assets/map/meadow.png'),
+  forest: require('../assets/map/forest.png'),
+  water:  require('../assets/map/water.png'),
+  fog:    require('../assets/map/fog.png'),
+  ember:  require('../assets/map/ember.png'),
 }
-const RESOURCE_ION_ICON: Record<ResourceType, keyof typeof Ionicons.glyphMap> = {
-  iron:    'cube',
-  crystal: 'diamond',
-  mana:    'sparkles',
-  herbs:   'leaf',
-  gold:    'ellipse',
+const NODE_ICON: Record<ResourceType, number> = {
+  iron:    require('../assets/map/node-iron.png'),
+  crystal: require('../assets/map/node-crystal.png'),
+  mana:    require('../assets/map/node-mana.png'),
+  herbs:   require('../assets/map/node-herbs.png'),
+  gold:    require('../assets/map/node-gold.png'),
 }
+const BANNER_OWN = require('../assets/map/banner-own.png')
+const BANNER_RIVAL = require('../assets/map/banner-rival.png')
 import * as Location from 'expo-location'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import {
@@ -37,6 +41,8 @@ import {
   selectNearbyTerritories, selectNearbyNodes, selectFortress,
 } from '@/store/useStore'
 import { SystemWindow, Icon } from '@/components/UI'
+import { MAP_STYLE } from '@/theme/mapStyle'
+import { regionName, stillnessFog } from '@/lib/worldMap'
 import {
   COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING,
 } from '@/theme/tokens'
@@ -64,42 +70,6 @@ function costLabel(cost: Partial<PlayerResources>): string {
   if (parts.length === 0) return 'free'
   return parts.map(([k, v]) => `${k} ${v}`).join(' · ')
 }
-
-// Parchment / old-map look without an API key: standard OpenStreetMap raster
-// tiles, desaturated and warmed via raster paint props over an aged-paper
-// background. Keyless (Stamen Watercolor via Stadia returns 401 without a key).
-const PARCHMENT_BG = '#e9dcc3'   // aged paper
-const MAP_STYLE = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    { id: 'paper', type: 'background', paint: { 'background-color': PARCHMENT_BG } },
-    {
-      id: 'osm',
-      type: 'raster',
-      source: 'osm',
-      paint: {
-        'raster-opacity': 0.85,
-        'raster-saturation': -0.6,   // mute modern colors toward sepia
-        'raster-contrast': -0.1,
-        'raster-hue-rotate': 25,     // warm shift
-        'raster-brightness-max': 0.95,
-      },
-    },
-  ],
-} as const
 
 // TODO (prod): remove dummy location — require real GPS and show "enable location" screen
 const DUMMY_LAT = 37.7749
@@ -659,13 +629,10 @@ const pl = StyleSheet.create({
 
 // Territory marker — a wax-seal / banner medallion that reads on a parchment map.
 // Larger hit area (the outer wrap is 48px) for easy tapping.
-function TerritoryPin({ color, borderColor, label }: { color: string; borderColor: string; label?: string }) {
+function TerritoryPin({ mine, label }: { mine: boolean; label?: string }) {
   return (
     <View style={pin.hit}>
-      <View style={[pin.seal, { backgroundColor: color, borderColor }]}>
-        <Ionicons name="flag" size={18} color="#fff8ec" />
-      </View>
-      <View style={[pin.stem, { backgroundColor: borderColor }]} />
+      <Image source={mine ? BANNER_OWN : BANNER_RIVAL} style={pin.banner} />
       {label ? (
         <View style={pin.labelWrap}>
           <Text style={pin.label} numberOfLines={1}>{label}</Text>
@@ -676,13 +643,8 @@ function TerritoryPin({ color, borderColor, label }: { color: string; borderColo
 }
 
 const pin = StyleSheet.create({
-  hit: { width: 56, alignItems: 'center', paddingTop: 4, paddingBottom: 10 },
-  seal: {
-    width: 38, height: 38, borderRadius: 19, borderWidth: 2.5,
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 3, shadowOffset: { width: 0, height: 2 }, elevation: 4,
-  },
-  stem: { width: 2, height: 8, marginTop: -1 },
+  hit: { width: 84, alignItems: 'center', paddingTop: 4, paddingBottom: 10 },
+  banner: { width: 48, height: 56 },
   labelWrap: {
     marginTop: 2, backgroundColor: 'rgba(40,30,18,0.82)', borderRadius: 3,
     paddingHorizontal: 5, paddingVertical: 1, maxWidth: 84,
@@ -690,21 +652,13 @@ const pin = StyleSheet.create({
   label: { fontFamily: FONTS.mono, fontSize: 9, color: '#f0e4cc', letterSpacing: 0.3 },
 })
 
-// Resource node — a faceted "gem" cabochon. Glows green when ready to harvest.
+// Resource node — a painted crystal tinted by type. Glows when ready to harvest.
 function NodePin({ node }: { node: ResourceNode }) {
   const ready = canHarvest(node)
-  const tint = RESOURCE_TINT[node.resource_type as ResourceType] ?? COLORS.system
   return (
     <View style={nodePin.hit}>
-      <View style={[nodePin.gem, { borderColor: ready ? COLORS.success : tint, backgroundColor: tint + '22' }]}>
-        <View style={{ transform: [{ rotate: '-45deg' }] }}>
-          <Ionicons
-            name={RESOURCE_ION_ICON[node.resource_type as ResourceType] ?? 'diamond'}
-            size={15}
-            color={ready ? COLORS.success : tint}
-          />
-        </View>
-      </View>
+      {ready && <View style={nodePin.glow} />}
+      <Image source={NODE_ICON[node.resource_type as ResourceType] ?? NODE_ICON.crystal} style={nodePin.gem} />
       {ready && <View style={nodePin.readyDot} />}
     </View>
   )
@@ -712,11 +666,8 @@ function NodePin({ node }: { node: ResourceNode }) {
 
 const nodePin = StyleSheet.create({
   hit: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  gem: {
-    width: 32, height: 32, borderRadius: 9, borderWidth: 2, transform: [{ rotate: '45deg' }],
-    alignItems: 'center', justifyContent: 'center',
-    shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 2, shadowOffset: { width: 0, height: 1 }, elevation: 3,
-  },
+  gem: { width: 32, height: 34 },
+  glow: { position: 'absolute', width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.success, opacity: 0.25 },
   readyDot: { position: 'absolute', top: 4, right: 6, width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.success, borderWidth: 1, borderColor: '#fff' },
 })
 
@@ -740,6 +691,7 @@ export default function WorldScreen() {
   const stamina = getStamina()
 
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null)
+  const fog = useMemo(() => stillnessFog(location), [location])
   const [locError, setLocError] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [selectedTerritory, setSelectedTerritory] = useState<Territory | null>(null)
@@ -979,6 +931,12 @@ export default function WorldScreen() {
     <View style={styles.root}>
       {/* Influence HUD */}
       <InfluenceHUD influence={resources.influence} stamina={stamina} maxStam={maxStamina(stats.END ?? 0)} />
+      {location && (
+        <View style={styles.regionWrap} pointerEvents="none">
+          <Text style={styles.regionSmall}>YOU WALK IN</Text>
+          <Text style={styles.regionName}>{regionName(location.lat, location.lng)}</Text>
+        </View>
+      )}
 
       {/* Map always mounted — GL context initializes immediately, no cold-start on SCAN */}
       <MapLibreMap
@@ -998,7 +956,33 @@ export default function WorldScreen() {
           maxZoom={18}
           {...(mapBounds ? { maxBounds: mapBounds } : {})}
         />
-        <UserLocation />
+        <Images images={MAP_IMAGES} />
+
+        {/* The Stillness: fog over everything beyond the last scan. Rendered
+            before the Wayfarer marker so the ember stays on top. */}
+        <GeoJSONSource id="stillness" data={fog}>
+          <Layer
+            id="stillness-fog"
+            type="fill"
+            style={{ fillPattern: 'fog', fillOpacity: ['get', 'opacity'] }}
+          />
+        </GeoJSONSource>
+
+        {/* The Wayfarer: an ember instead of the default blue dot. */}
+        <UserLocation>
+          <Layer
+            id="wayfarer-glow"
+            type="circle"
+            source="mlrn-user-location"
+            style={{ circleRadius: 16, circleColor: '#e8833a', circleOpacity: 0.25, circleBlur: 0.6 }}
+          />
+          <Layer
+            id="wayfarer-ember"
+            type="symbol"
+            source="mlrn-user-location"
+            style={{ iconImage: 'ember', iconSize: 0.34, iconAnchor: 'bottom', iconAllowOverlap: true }}
+          />
+        </UserLocation>
 
         {location && (
           <>
@@ -1053,14 +1037,14 @@ export default function WorldScreen() {
                 OWN onPress (the native annotation view swallows inner touches). */}
             {myTerritories.map(t => (
               <ViewAnnotation key={t.id} id={`terr-${t.id}`} lngLat={coord(t.lat, t.lng)} onPress={() => setSelectedTerritory(t)}>
-                <TerritoryPin color="#3f7d4f" borderColor="#a9d6b0" label={t.name} />
+                <TerritoryPin mine label={t.name} />
               </ViewAnnotation>
             ))}
 
             {/* Enemy territory markers — crimson seal */}
             {enemyTerritories.map(t => (
               <ViewAnnotation key={t.id} id={`terr-${t.id}`} lngLat={coord(t.lat, t.lng)} onPress={() => setSelectedTerritory(t)}>
-                <TerritoryPin color="#a23b34" borderColor="#e8a39c" label={t.name} />
+                <TerritoryPin mine={false} label={t.name} />
               </ViewAnnotation>
             ))}
 
@@ -1202,6 +1186,13 @@ export default function WorldScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.ground },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SPACING.lg },
+  regionWrap: {
+    position: 'absolute', top: 56, left: 16, zIndex: 10, alignItems: 'center',
+    backgroundColor: 'rgba(28,21,14,0.88)', borderWidth: 1, borderColor: '#8a6a43',
+    borderRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs,
+  },
+  regionSmall: { fontFamily: FONTS.mono, fontSize: 8, color: '#c9b38c', letterSpacing: LETTER_SPACING.wide },
+  regionName: { fontFamily: FONTS.display, fontSize: FONT_SIZES.md, color: '#f6e7c6', letterSpacing: 1 },
   crosshairWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   crosshairRing: {
     width: 40, height: 40, borderRadius: 20, borderWidth: 2.5, borderColor: '#d4af52',
