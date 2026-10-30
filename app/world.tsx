@@ -1,6 +1,6 @@
 // =============================================================================
 // Aeternum — World Map Screen
-// MapLibre + OpenStreetMap (CARTO Dark Matter — free, no API key)
+// MapLibre + OpenFreeMap vector tiles, styled as a game world (src/theme/mapStyle.ts)
 // Claim territories · Attack enemies · Harvest resource nodes
 // =============================================================================
 import { useState, useEffect, useRef, useCallback } from 'react'
@@ -37,6 +37,7 @@ import {
   selectNearbyTerritories, selectNearbyNodes, selectFortress,
 } from '@/store/useStore'
 import { SystemWindow, Icon } from '@/components/UI'
+import { MAP_STYLE } from '@/theme/mapStyle'
 import {
   COLORS, FONTS, FONT_SIZES, SPACING, RADIUS, BORDER, LETTER_SPACING,
 } from '@/theme/tokens'
@@ -64,42 +65,6 @@ function costLabel(cost: Partial<PlayerResources>): string {
   if (parts.length === 0) return 'free'
   return parts.map(([k, v]) => `${k} ${v}`).join(' · ')
 }
-
-// Parchment / old-map look without an API key: standard OpenStreetMap raster
-// tiles, desaturated and warmed via raster paint props over an aged-paper
-// background. Keyless (Stamen Watercolor via Stadia returns 401 without a key).
-const PARCHMENT_BG = '#e9dcc3'   // aged paper
-const MAP_STYLE = {
-  version: 8,
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: [
-        'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      ],
-      tileSize: 256,
-      attribution: '© OpenStreetMap contributors',
-      maxzoom: 19,
-    },
-  },
-  layers: [
-    { id: 'paper', type: 'background', paint: { 'background-color': PARCHMENT_BG } },
-    {
-      id: 'osm',
-      type: 'raster',
-      source: 'osm',
-      paint: {
-        'raster-opacity': 0.85,
-        'raster-saturation': -0.6,   // mute modern colors toward sepia
-        'raster-contrast': -0.1,
-        'raster-hue-rotate': 25,     // warm shift
-        'raster-brightness-max': 0.95,
-      },
-    },
-  ],
-} as const
 
 // TODO (prod): remove dummy location — require real GPS and show "enable location" screen
 const DUMMY_LAT = 37.7749
