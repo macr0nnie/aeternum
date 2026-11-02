@@ -964,6 +964,7 @@ export interface Territory {
   level: number
   health: number
   max_health: number
+  shield_until?: string | null   // immune to raids/capture until then (migration 010)
   created_at: string
 }
 
@@ -972,15 +973,17 @@ export function territoryMaxHealth(level: number): number {
   return 100 + (level - 1) * 50   // L1=100, L2=150 … L5=300
 }
 
-// Defense rating shown to the player — owner DEF/END + level + walls bonus.
+// Defense power in a raid — owner DEF/END + territory level + fortress walls +
+// Iron Golem. Mirrors territory_battle_powers() in
+// supabase/migrations/010_territory_battles.sql, which is what resolves raids.
 export function territoryDefense(
   ownerStats: Partial<Stats> | undefined,
   level: number,
   wallsLevel = 0,
+  defenseSlots: DefenseSlot[] = [],
 ): number {
-  const def = ownerStats?.DEF ?? 0
-  const end = ownerStats?.END ?? 0
-  return Math.round(def * 1.5 + end + level * 20 + wallsLevel * 15)
+  const golem = defenseSlots.some(s => s.skill_id === 'bsk_iron_golem') ? 20 : 0
+  return (ownerStats?.DEF ?? 0) * 2 + (ownerStats?.END ?? 0) + level * 8 + wallsLevel * 4 + golem
 }
 
 // Cost to repair a territory back to full, scaled by missing HP. Paid in resources.
@@ -1148,6 +1151,36 @@ export interface FortressBuilding {
   icon: string
   maxLevel: number
   upgradeCost: (level: number) => Partial<PlayerResources>
+  // Run-loot material ids (src/data/items.ts) by tier: common, uncommon, rare.
+  materials: [string, string, string]
+}
+
+// Run loot needed to reach `targetLevel`: commons early, rarer drops later.
+export function buildingMaterialCost(b: FortressBuilding, targetLevel: number): Record<string, number> {
+  const [common, uncommon, rare] = b.materials
+  if (targetLevel <= 2) return { [common]: targetLevel * 2 }
+  if (targetLevel <= 4) return { [uncommon]: targetLevel - 1 }
+  return { [rare]: 2 }
+}
+
+// What's still missing to raise `b` one level from `currentLevel`
+// (resource or material id → shortfall). Empty means affordable.
+export function buildingShortfall(
+  b: FortressBuilding,
+  currentLevel: number,
+  resources: PlayerResources,
+  materials: Record<string, number>,
+): Record<string, number> {
+  const next = currentLevel + 1
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(b.upgradeCost(next))) {
+    const have = resources[k as keyof PlayerResources] ?? 0
+    if (have < (v ?? 0)) out[k] = (v ?? 0) - have
+  }
+  for (const [id, q] of Object.entries(buildingMaterialCost(b, next))) {
+    if ((materials[id] ?? 0) < q) out[id] = q - (materials[id] ?? 0)
+  }
+  return out
 }
 
 export const FORTRESS_BUILDINGS: FortressBuilding[] = [
@@ -1155,19 +1188,21 @@ export const FORTRESS_BUILDINGS: FortressBuilding[] = [
     key: 'barracks_level',
     name: 'Barracks',
     description: 'Train soldiers, increase ATK.',
-    statBonus: '+2 ATK per level',
+    statBonus: '+2 ATK in raids per level',
     icon: 'sword-cross',
     maxLevel: 5,
     upgradeCost: (lvl) => ({ iron: lvl * 10 + 5, gold: lvl * 5 }),
+    materials: ['mat_wolf_fang', 'mat_ember_core', 'mat_shadow_silk'],
   },
   {
     key: 'walls_level',
     name: 'Fortress Walls',
     description: 'Harden your defences, increase DEF.',
-    statBonus: '+2 DEF per level',
+    statBonus: '+2 DEF for your territories per level',
     icon: 'shield',
     maxLevel: 5,
     upgradeCost: (lvl) => ({ iron: lvl * 15, crystal: lvl * 5 }),
+    materials: ['mat_stone_chip', 'mat_storm_essence', 'mat_void_fragment'],
   },
   {
     key: 'forge_level',
@@ -1177,6 +1212,7 @@ export const FORTRESS_BUILDINGS: FortressBuilding[] = [
     icon: 'hammer',
     maxLevel: 5,
     upgradeCost: (lvl) => ({ iron: lvl * 8, mana: lvl * 8 }),
+    materials: ['mat_stone_chip', 'mat_mana_shard', 'mat_void_fragment'],
   },
 ]
 

@@ -44,13 +44,14 @@ import {
   fetchNearbyTerritories, fetchMyTerritories, placeTerritory,
   fetchNearbyNodes, harvestNode, spawnNodesNearTerritory,
   upgradeTerritory, repairTerritory, raidTerritory, captureTerritory,
+  fetchBattlePreview,
 } from '@/lib/supabase'
-import type { Territory, ResourceNode, ResourceType, TraitKey, PlayerResources, Stats } from '@/types'
+import type { Territory, ResourceNode, ResourceType, TraitKey, PlayerResources, Stats, DefenseSlot } from '@/types'
 import {
   RESOURCE_LABELS, RESOURCE_ICONS, TERRITORY_PLACE_COST,
   HARVEST_COOLDOWN_H, HARVEST_RANGE_M, ATTACK_RANGE_KM,
   TERRITORY_MAX_LEVEL, unlockedResourceTypes, territoryUpgradeCost,
-  territoryRepairCost, territoryMaxHealth, territoryDefense,
+  territoryRepairCost, territoryDefense,
   STAMINA_COSTS, maxStamina,
 } from '@/types'
 
@@ -148,12 +149,9 @@ function inInteractRange(
   return { ok: nearOwn, viaTerritory: nearOwn, distM }
 }
 
-function attackPower(stats: Record<string, number>): number {
-  return (stats.ATK ?? 0) * 2 + (stats.SPD ?? 0) + Math.round((stats.LCK ?? 0) * 0.5)
-}
-
-function defencePower(stats: Record<string, number>, territory: Territory): number {
-  return (stats.DEF ?? 0) * 2 + (stats.END ?? 0) + territory.level * 8
+function shieldHoursLeft(t: Territory): number {
+  const ms = t.shield_until ? new Date(t.shield_until).getTime() - Date.now() : 0
+  return ms > 0 ? Math.ceil(ms / 3_600_000) : 0
 }
 
 
@@ -202,6 +200,7 @@ interface TerritoryModalProps {
   playerStats: Record<string, number>
   resources: PlayerResources
   wallsLevel: number
+  defenseSlots: DefenseSlot[]
   // Siege: whether the player is in range to act on this (enemy) territory.
   inRange: boolean
   rangeLabel: string
@@ -209,7 +208,6 @@ interface TerritoryModalProps {
   stamina: number
   onSpendStamina: (amount: number) => boolean
   onClose: () => void
-  onAttackDone: () => void
   onUpgraded: (t: Territory) => void
   onRepaired: (t: Territory) => void
   onCaptured: (t: Territory) => void
@@ -218,21 +216,31 @@ interface TerritoryModalProps {
 }
 
 function TerritoryModal({
-  territory, playerId, playerStats, resources, wallsLevel,
+  territory, playerId, playerStats, resources, wallsLevel, defenseSlots,
   inRange, rangeLabel, stamina, onSpendStamina,
-  onClose, onAttackDone, onUpgraded, onRepaired, onCaptured, onRaided, onSpendResources,
+  onClose, onUpgraded, onRepaired, onCaptured, onRaided, onSpendResources,
 }: TerritoryModalProps) {
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ outcome: 'win' | 'loss'; atkPow: number; defPow: number } | null>(null)
+  // Server-computed attack vs defense (we can't read the owner's stats or fortress).
+  const [preview, setPreview] = useState<{ atk: number; def: number; last_territory: boolean } | null>(null)
+  const enemyId = territory && territory.owner_id !== playerId ? territory.id : null
+
+  useEffect(() => {
+    setPreview(null)
+    if (!enemyId) return
+    let active = true
+    fetchBattlePreview(enemyId)
+      .then(({ data }) => { if (active && data) setPreview(data) })
+      .catch(() => null)
+    return () => { active = false }
+  }, [enemyId])
 
   if (!territory) return null
   const isOwn = territory.owner_id === playerId
-  const atkPow = attackPower(playerStats)
-  const defPow = defencePower(playerStats, territory)
 
   // Owned-territory stats
-  const def = territoryDefense(playerStats as Partial<Stats>, territory.level, wallsLevel)
+  const def = territoryDefense(playerStats as Partial<Stats>, territory.level, wallsLevel, defenseSlots)
   const hpPct = territory.max_health > 0 ? territory.health / territory.max_health : 0
   const unlocked = unlockedResourceTypes(territory.level)
   const nextLevel = territory.level + 1
@@ -244,69 +252,50 @@ function TerritoryModal({
   const canAfford = (cost: Partial<PlayerResources>) =>
     Object.entries(cost).every(([k, v]) => (resources[k as keyof PlayerResources] as number) >= (v as number))
 
-  async function handleUpgrade() {
-    if (!canAfford(upgradeCost)) { Alert.alert('Not enough resources', costLabel(upgradeCost)); return }
+  // Pay only after the server accepts, so a failed call never eats resources.
+  async function ownerAction(
+    cost: Partial<PlayerResources>,
+    call: () => PromiseLike<{ data: unknown; error: { message: string } | null }>,
+    done: (t: Territory) => void,
+  ) {
+    if (!canAfford(cost)) { Alert.alert('Not enough resources', costLabel(cost)); return }
     setBusy(true)
     try {
-      if (!onSpendResources(upgradeCost)) { setBusy(false); return }
-      const newMax = territoryMaxHealth(nextLevel)
-      const { data } = await upgradeTerritory(territory!.id, nextLevel, newMax)
-      if (data) onUpgraded(data as Territory)
-    } catch { Alert.alert('Error', 'Upgrade failed. Check your connection.') }
+      const { data, error } = await call()
+      if (error || !data) Alert.alert('Not done', error?.message ?? 'Check your connection.')
+      else if (onSpendResources(cost)) done(data as Territory)
+    } catch { Alert.alert('Error', 'Check your connection and try again.') }
     setBusy(false)
   }
-
-  async function handleRepair() {
-    if (!canAfford(repairCost)) { Alert.alert('Not enough resources', costLabel(repairCost)); return }
-    setBusy(true)
-    try {
-      if (!onSpendResources(repairCost)) { setBusy(false); return }
-      const { data } = await repairTerritory(territory!.id, territory!.max_health)
-      if (data) onRepaired(data as Territory)
-    } catch { Alert.alert('Error', 'Repair failed. Check your connection.') }
-    setBusy(false)
-  }
+  const handleUpgrade = () => ownerAction(upgradeCost, () => upgradeTerritory(territory!.id), onUpgraded)
+  const handleRepair = () => ownerAction(repairCost, () => repairTerritory(territory!.id), onRepaired)
 
   // Siege: raid weakens HP (and steals resources); capture is unlocked once HP
-  // drops below the threshold.
-  const captureReady = hpPct <= CAPTURE_HP_THRESHOLD
+  // drops below the threshold. The server decides both; stamina is spent only
+  // when it accepts.
+  const shieldH = shieldHoursLeft(territory)
+  const captureReady = hpPct <= CAPTURE_HP_THRESHOLD && !preview?.last_territory
 
-  async function handleRaid() {
+  async function siege(cost: number, call: () => PromiseLike<{ data: unknown; error: { message: string } | null }>, done: (t: Territory) => void) {
     if (!inRange) { Alert.alert('Out of range', rangeLabel); return }
-    if (stamina < STAMINA_COSTS.raid) { Alert.alert('Not enough stamina', `Raiding costs ${STAMINA_COSTS.raid} stamina. Run to recharge.`); return }
+    if (stamina < cost) { Alert.alert('Not enough stamina', `This costs ${cost} stamina. Run to recharge.`); return }
     setLoading(true)
     try {
-      if (!onSpendStamina(STAMINA_COSTS.raid)) { setLoading(false); return }
-      // Damage scales with your attack vs their defense.
-      const dmg = Math.max(8, Math.round(territory!.max_health * 0.18 * (atkPow / (atkPow + defPow)) * 2))
-      const newHealth = Math.max(0, territory!.health - dmg)
-      // Steal a resource the territory can produce, scaled by level.
-      const stealType = unlocked[Math.floor(Math.random() * unlocked.length)] ?? 'iron'
-      const stolen: Partial<PlayerResources> = { [stealType]: 5 + territory!.level * 3 }
-      const { data } = await raidTerritory(playerId, territory!.owner_id, territory!.id, newHealth, atkPow, defPow)
-      if (data) onRaided(data as Territory, stolen)
+      const { data, error } = await call()
+      if (error || !data) Alert.alert('Not done', error?.message ?? 'Check your connection.')
+      else if (onSpendStamina(cost)) done(data as Territory)
     } catch {
-      Alert.alert('Error', 'Raid failed. Check your connection and try again.')
+      Alert.alert('Error', 'Check your connection and try again.')
     }
     setLoading(false)
   }
 
-  async function handleCapture() {
-    if (!inRange) { Alert.alert('Out of range', rangeLabel); return }
-    if (stamina < STAMINA_COSTS.capture) { Alert.alert('Not enough stamina', `Capturing costs ${STAMINA_COSTS.capture} stamina.`); return }
-    setLoading(true)
-    try {
-      if (!onSpendStamina(STAMINA_COSTS.capture)) { setLoading(false); return }
-      const { data } = await captureTerritory(playerId, territory!.id, territory!.max_health)
-      if (data) {
-        setResult({ outcome: 'win', atkPow, defPow })
-        onCaptured(data as Territory)
-      }
-    } catch {
-      Alert.alert('Error', 'Capture failed. Check your connection and try again.')
-    }
-    setLoading(false)
-  }
+  const handleRaid = () => siege(STAMINA_COSTS.raid, () => raidTerritory(territory!.id), (t) => {
+    // Plunder a resource the territory can produce, scaled by level.
+    const stealType = unlocked[Math.floor(Math.random() * unlocked.length)] ?? 'iron'
+    onRaided(t, { [stealType]: 5 + t.level * 3 })
+  })
+  const handleCapture = () => siege(STAMINA_COSTS.capture, () => captureTerritory(territory!.id), onCaptured)
 
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
@@ -319,7 +308,7 @@ function TerritoryModal({
             </Text>
 
             {/* Owned territory: HP / Defense / resources / upgrade / repair */}
-            {isOwn && !result && (
+            {isOwn && (
               <>
                 {/* HP bar */}
                 <View style={tm.statLine}>
@@ -380,7 +369,7 @@ function TerritoryModal({
               </>
             )}
 
-            {!isOwn && !result && (
+            {!isOwn && (
               <>
                 {/* Enemy HP — siege progress toward capture */}
                 <View style={tm.statLine}>
@@ -397,23 +386,24 @@ function TerritoryModal({
                 <View style={modal.statRow}>
                   <View style={modal.statBox}>
                     <Text style={modal.statLabel}>YOUR ATK</Text>
-                    <Text style={[modal.statVal, { color: COLORS.success }]}>{atkPow}</Text>
+                    <Text style={[modal.statVal, { color: COLORS.success }]}>{preview?.atk ?? '–'}</Text>
                   </View>
                   <Text style={modal.vs}>VS</Text>
                   <View style={modal.statBox}>
                     <Text style={modal.statLabel}>DEF</Text>
-                    <Text style={[modal.statVal, { color: COLORS.error }]}>{defPow}</Text>
+                    <Text style={[modal.statVal, { color: COLORS.error }]}>{preview?.def ?? '–'}</Text>
                   </View>
                 </View>
 
-                {/* Range gate */}
+                {/* Range + shield gates */}
                 {!inRange && <Text style={tm.rangeWarn}>⊘ {rangeLabel}</Text>}
+                {shieldH > 0 && <Text style={tm.rangeWarn}>⊘ Shielded for {shieldH}h after a recent claim or capture.</Text>}
 
                 {/* Raid — weaken + steal */}
                 <TouchableOpacity
-                  style={[modal.attackBtn, (!inRange || stamina < STAMINA_COSTS.raid) && tm.disabledBtn]}
+                  style={[modal.attackBtn, (!inRange || shieldH > 0 || stamina < STAMINA_COSTS.raid) && tm.disabledBtn]}
                   onPress={handleRaid}
-                  disabled={loading || !inRange || stamina < STAMINA_COSTS.raid}
+                  disabled={loading || !inRange || shieldH > 0 || stamina < STAMINA_COSTS.raid}
                   activeOpacity={0.75}
                 >
                   {loading
@@ -424,34 +414,29 @@ function TerritoryModal({
                 {/* Capture — only when weakened enough */}
                 {captureReady ? (
                   <TouchableOpacity
-                    style={[tm.captureBtn, (!inRange || stamina < STAMINA_COSTS.capture) && tm.disabledBtn]}
+                    style={[tm.captureBtn, (!inRange || shieldH > 0 || stamina < STAMINA_COSTS.capture) && tm.disabledBtn]}
                     onPress={handleCapture}
-                    disabled={loading || !inRange || stamina < STAMINA_COSTS.capture}
+                    disabled={loading || !inRange || shieldH > 0 || stamina < STAMINA_COSTS.capture}
                     activeOpacity={0.75}
                   >
                     <Text style={tm.captureTxt}><Icon name="flag" size={13} color={COLORS.systemGold} /> CAPTURE   ({STAMINA_COSTS.capture} stamina)</Text>
                   </TouchableOpacity>
                 ) : (
                   <Text style={tm.captureHint}>
-                    Weaken to {Math.round(CAPTURE_HP_THRESHOLD * 100)}% to capture
+                    {preview?.last_territory
+                      ? 'Their last territory: it can be raided but not taken.'
+                      : `Weaken to ${Math.round(CAPTURE_HP_THRESHOLD * 100)}% to capture`}
                   </Text>
                 )}
               </>
             )}
 
-            {result && (
-              <View style={modal.resultBox}>
-                <Text style={[modal.resultTxt, { color: COLORS.success }]}>◆ TERRITORY CAPTURED</Text>
-                <Text style={modal.resultSub}>It and its nodes are now yours.</Text>
-              </View>
-            )}
-
             <TouchableOpacity
               style={modal.closeBtn}
-              onPress={() => { if (result?.outcome === 'win') onAttackDone(); onClose() }}
+              onPress={onClose}
               activeOpacity={0.75}
             >
-              <Text style={modal.closeTxt}>{result ? 'DONE' : 'CLOSE'}</Text>
+              <Text style={modal.closeTxt}>CLOSE</Text>
             </TouchableOpacity>
           </SystemWindow>
         </View>
@@ -613,9 +598,6 @@ const modal = StyleSheet.create({
   probLabel: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, textAlign: 'center', marginBottom: SPACING.md },
   attackBtn: { backgroundColor: 'rgba(229,57,53,0.15)', borderWidth: BORDER.thin, borderColor: COLORS.systemAlert, borderRadius: RADIUS.sm, paddingVertical: SPACING.sm, alignItems: 'center', marginBottom: SPACING.sm },
   attackTxt: { fontFamily: FONTS.display, fontSize: FONT_SIZES.sm, color: COLORS.systemAlert, letterSpacing: LETTER_SPACING.wide },
-  resultBox: { alignItems: 'center', paddingVertical: SPACING.md },
-  resultTxt: { fontFamily: FONTS.display, fontSize: FONT_SIZES.md, letterSpacing: LETTER_SPACING.normal, marginBottom: 4 },
-  resultSub: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary },
   closeBtn: { borderWidth: BORDER.thin, borderColor: COLORS.borderMid, borderRadius: RADIUS.sm, paddingVertical: SPACING.sm, alignItems: 'center' },
   closeTxt: { fontFamily: FONTS.mono, fontSize: FONT_SIZES.xs, color: COLORS.textSecondary, letterSpacing: LETTER_SPACING.wide },
 })
@@ -1169,12 +1151,12 @@ export default function WorldScreen() {
         playerStats={stats}
         resources={resources}
         wallsLevel={fortress.walls_level}
+        defenseSlots={fortress.defense_slots ?? []}
         inRange={selectedTerritory ? inInteractRange(selectedTerritory.lat, selectedTerritory.lng, location, myTerritories, ATTACK_RANGE_KM * 1000).ok : false}
         rangeLabel={`Move within ${ATTACK_RANGE_KM} km, or own a territory nearby.`}
         stamina={stamina}
         onSpendStamina={spendStamina}
         onClose={() => setSelectedTerritory(null)}
-        onAttackDone={() => { if (location) loadMapData(location.lat, location.lng) }}
         onUpgraded={(t) => { updateMyTerritory(t); setSelectedTerritory(t) }}
         onRepaired={(t) => { updateMyTerritory(t); setSelectedTerritory(t) }}
         onCaptured={(t) => {
@@ -1182,6 +1164,7 @@ export default function WorldScreen() {
           addMyTerritory(t)
           if (location) loadMapData(location.lat, location.lng)
           setSelectedTerritory(null)
+          showNote('Territory captured! It and its nodes are now yours. Shielded for 12h.')
         }}
         onRaided={(t, stolen) => {
           setNearbyTerritories(nearbyTerritories.map(x => x.id === t.id ? t : x))

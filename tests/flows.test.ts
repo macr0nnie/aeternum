@@ -10,6 +10,7 @@
 //   2. Raid → weaken → capture            (the turf-war siege loop)
 //   3. Harvest → resources → upgrade      (the gather/upgrade loop)
 //   4. Stamina gating across a session     (the action economy)
+//   5. Run loot → fortress walls → defense (base upgrades feed raids)
 // =============================================================================
 
 import { describe, it, expect, beforeEach } from 'vitest'
@@ -17,6 +18,7 @@ import { useStore } from '@/store/useStore'
 import {
   STAMINA_COSTS, TERRITORY_PLACE_COST, RIFT_INFLUENCE_REWARD,
   territoryMaxHealth, territoryUpgradeCost, unlockedResourceTypes,
+  FORTRESS_BUILDINGS, buildingMaterialCost, territoryDefense,
 } from '@/types'
 import type { Player, Territory } from '@/types'
 
@@ -147,5 +149,44 @@ describe('FLOW 4: stamina gates an action session and a run refuels it', () => {
       { distance_km: 3, duration_seconds: 1800, steps: 4000, avg_heart_rate: 150, ended_at: '' },
     )
     expect(s().getStamina()).toBeGreaterThanOrEqual(STAMINA_COSTS.raid) // can act again
+  })
+})
+
+// ---------------------------------------------------------------------------
+describe('FLOW 5: run loot + resources → fortress walls → territory defense', () => {
+  it('upgrading walls spends resources and run-loot materials and raises defense', () => {
+    s().setPlayer(makePlayer())
+    const walls = FORTRESS_BUILDINGS.find(b => b.key === 'walls_level')!
+    const before = territoryDefense(s().player!.stats, 1, s().fortress.walls_level)
+
+    // Not affordable yet: nothing is spent.
+    expect(s().upgradeFortressBuilding('walls_level')).toBe(false)
+    expect(s().fortress.walls_level).toBe(0)
+
+    // Resources from harvesting + materials from a run's loot.
+    for (const [k, v] of Object.entries(walls.upgradeCost(1))) s().addResource(k as any, v as number)
+    expect(s().upgradeFortressBuilding('walls_level')).toBe(false) // still missing the material
+    for (const [id, q] of Object.entries(buildingMaterialCost(walls, 1))) s().addMaterial(id, q)
+
+    expect(s().upgradeFortressBuilding('walls_level')).toBe(true)
+    expect(s().fortress.walls_level).toBe(1)
+    expect(s().resources.iron).toBe(0)
+    expect(s().inventory.materials).toEqual({})
+    expect(territoryDefense(s().player!.stats, 1, s().fortress.walls_level)).toBeGreaterThan(before)
+  })
+
+  it('higher levels need rarer loot and stop at max level', () => {
+    const walls = FORTRESS_BUILDINGS.find(b => b.key === 'walls_level')!
+    expect(Object.keys(buildingMaterialCost(walls, 1))).toEqual(['mat_stone_chip'])
+    expect(Object.keys(buildingMaterialCost(walls, 5))).toEqual(['mat_void_fragment'])
+    s().setFortress({ ...s().fortress, walls_level: walls.maxLevel })
+    s().addResource('iron', 9999); s().addResource('crystal', 9999); s().addMaterial('mat_void_fragment', 99)
+    expect(s().upgradeFortressBuilding('walls_level')).toBe(false)
+  })
+
+  it('an equipped Iron Golem adds 20 defense', () => {
+    const stats = makePlayer().stats
+    expect(territoryDefense(stats, 1, 0, [{ slot_index: 0, skill_id: 'bsk_iron_golem' }]))
+      .toBe(territoryDefense(stats, 1, 0) + 20)
   })
 })
