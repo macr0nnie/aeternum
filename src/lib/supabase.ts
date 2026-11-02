@@ -143,15 +143,6 @@ export async function ensurePlayer(playerId: string) {
     .single()
 }
 
-export async function fetchRunHistory(playerId: string, limit = 20) {
-  return supabase
-    .from('run_sessions')
-    .select('*')
-    .eq('player_id', playerId)
-    .order('started_at', { ascending: false })
-    .limit(limit)
-}
-
 export async function updatePlayer(playerId: string, updates: Partial<import('@/types').Player>) {
   return supabase
     .from('players')

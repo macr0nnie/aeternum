@@ -314,10 +314,6 @@ export function findGearById(id: string): GearItem | undefined {
   return ALL_GEAR.find(g => g.id === id)
 }
 
-export function findRelicById(id: string): Relic | undefined {
-  return RELICS.find(r => r.id === id)
-}
-
 export function findMaterialById(id: string): MaterialItem | undefined {
   return MATERIALS.find(m => m.id === id)
 }

@@ -136,24 +136,3 @@ export function formatDuration(seconds: number): string {
   }
   return `${m}:${String(s).padStart(2, '0')}`
 }
-
-// ---------------------------------------------------------------------------
-// formatDistance
-// ---------------------------------------------------------------------------
-
-export function formatDistance(km: number): string {
-  return `${km.toFixed(2)} km`
-}
-
-// ---------------------------------------------------------------------------
-// formatPace
-// ---------------------------------------------------------------------------
-// Returns pace as MM:SS per km.
-
-export function formatPace(distanceKm: number, durationSeconds: number): string {
-  if (distanceKm === 0) return '--:--'
-  const paceSeconds = durationSeconds / distanceKm
-  const m = Math.floor(paceSeconds / 60)
-  const s = Math.round(paceSeconds % 60)
-  return `${m}:${String(s).padStart(2, '0')} /km`
-}
