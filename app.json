@@ -11,7 +11,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0a0c12"
       },
-      "package": "com.aeternum.app",
+      "package": "com.macr0nnie.aeternum",
       "permissions": [
         "android.permission.health.READ_EXERCISE",
         "android.permission.health.READ_STEPS",
