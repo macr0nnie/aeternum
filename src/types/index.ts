@@ -412,25 +412,6 @@ export interface Party {
 }
 
 // ---------------------------------------------------------------------------
-// Dungeon tiers
-// ---------------------------------------------------------------------------
-
-export interface DungeonTier {
-  rank: 'B' | 'A' | 'S'
-  label: string
-  minDistanceKm: number
-  minPlayers: number
-  maxPlayers: number
-  rewardRarity: Rarity
-}
-
-export const DUNGEON_TIERS: DungeonTier[] = [
-  { rank: 'B', label: 'Rank B Dungeon', minDistanceKm: 5, minPlayers: 1, maxPlayers: 4, rewardRarity: 'rare' },
-  { rank: 'A', label: 'Rank A Dungeon', minDistanceKm: 8.5, minPlayers: 2, maxPlayers: 4, rewardRarity: 'rare' },
-  { rank: 'S', label: 'Rank S Raid', minDistanceKm: 15, minPlayers: 5, maxPlayers: 8, rewardRarity: 'legendary' },
-]
-
-// ---------------------------------------------------------------------------
 // Type matchup (10×10 PvP chart — resolved server-side)
 // ---------------------------------------------------------------------------
 // Values: 2 = super effective, 1 = normal, 0.5 = not very effective, 0 = immune
@@ -615,23 +596,6 @@ export const QUESTS: Quest[] = [
 
 export type DungeonType = 'explorer' | 'conquest' | 'gathering' | 'endurance' | 'general'
 
-export const DUNGEON_TYPE_LABELS: Record<DungeonType, string> = {
-  explorer:  'Explorer',
-  conquest:  'Conquest',
-  gathering: 'Gathering',
-  endurance: 'Endurance',
-  general:   'General',
-}
-
-// MaterialCommunityIcons glyph names — rendered via <Icon name={...}> in UI.tsx.
-export const DUNGEON_TYPE_ICONS: Record<DungeonType, string> = {
-  explorer:  'map',
-  conquest:  'flag',
-  gathering: 'pickaxe',
-  endurance: 'run',
-  general:   'sword-cross',
-}
-
 // ---------------------------------------------------------------------------
 // Trait system — behavioral fingerprint; separate from combat stats
 // ---------------------------------------------------------------------------
@@ -674,16 +638,6 @@ export const TRAIT_ICONS: Record<TraitKey, string> = {
   gathering:   'pickaxe',
   consistency: 'fire',
   mastery:     'star',
-}
-
-export const TRAIT_SOURCES: Record<TraitKey, string> = {
-  endurance:   'Long runs · Endurance dungeons',
-  strength:    'High-rank dungeons · Conquest dungeons',
-  exploration: 'Scanning map · Claiming territories',
-  conquest:    'Claiming territories · Conquest dungeons',
-  gathering:   'Harvesting resources · Gathering dungeons',
-  consistency: 'Daily runs · Streaks',
-  mastery:     'Repeat dungeon clears · Specialisation',
 }
 
 // ---------------------------------------------------------------------------

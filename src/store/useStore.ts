@@ -483,22 +483,17 @@ export const useStore = create<AeternumState>()(
 // ---------------------------------------------------------------------------
 
 export const selectPlayer = (s: AeternumState) => s.player
-export const selectStats = (s: AeternumState) => s.player?.stats
 export const selectSyncState = (s: AeternumState) => s.syncState
 export const selectLatestRunResult = (s: AeternumState) => s.latestRunResult
 export const selectLastRunSummary = (s: AeternumState) => s.lastRunSummary
-export const selectRunHistory = (s: AeternumState) => s.runHistory
-export const selectUserId = (s: AeternumState) => s.userId
 export const selectCompletedQuestIds = (s: AeternumState) => s.completedQuestIds
 export const selectClearedDungeonIds = (s: AeternumState) => s.clearedDungeonIds
-export const selectCharacterSetupDone = (s: AeternumState) => s.characterSetupDone
 export const selectHealthPermissionAsked = (s: AeternumState) => s.healthPermissionAsked
 export const selectInventory = (s: AeternumState) => s.inventory
 export const selectEquipped = (s: AeternumState) => s.equipped
 export const selectUnlockedTalentIds = (s: AeternumState) => s.unlockedTalentIds
 export const selectPartyMembers = (s: AeternumState) => s.partyMembers
 export const selectPartyInvites = (s: AeternumState) => s.partyInvites
-export const selectLastCoOpResult = (s: AeternumState) => s.lastCoOpResult
 export const selectResources = (s: AeternumState) => s.resources
 export const selectFortress = (s: AeternumState) => s.fortress
 export const selectCrops = (s: AeternumState) => s.crops
